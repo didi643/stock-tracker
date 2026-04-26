@@ -748,10 +748,10 @@ async function openDetail(symbol) {
   const dcfSource = f?.fcfYield != null ? "FCF Yield (FMP)"
                   : f?.eps      != null ? "EPS (FMP)"
                   : "5% yield proxy";
-  const hasFmpData = f?.pe != null || f?.fcfYield != null;
+  const hasFmpData = f?.fmpLoaded === true;
   const dataBadge = hasFmpData
-    ? `<span class="text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded text-xs">✓ FMP fundamentals loaded</span>`
-    : `<span class="text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded text-xs">⚠ No FMP key — DCF uses ${dcfSource}</span>`;
+    ? `<span class="text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded text-xs">✓ FMP fundamentals loaded · DCF uses ${dcfSource}</span>`
+    : `<span class="text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded text-xs">⚠ FMP not connected — DCF uses ${dcfSource}</span>`;
 
   // Metrics grid
   document.getElementById("m-metrics").innerHTML = `

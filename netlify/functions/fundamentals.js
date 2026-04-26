@@ -71,40 +71,57 @@ async function pool(tasks, limit = 5) {
   return results;
 }
 
-// Fetch fundamental data for a single symbol from FMP (3 calls)
+// Fetch fundamental data for a single symbol from FMP.
+// Free tier gives: profile (pe, eps), key-metrics-ttm (peRatioTTM, epsTTM,
+//   freeCashFlowPerShareTTM), ratios (annual priceEarningsRatio for 5yr avg).
+// fcfYieldTTM is a PREMIUM field — we compute FCF yield manually instead:
+//   fcfYield = freeCashFlowPerShareTTM / currentPrice (from profile).
 async function fetchFmpFundamentals(symbol) {
   const [profile, metrics, ratios] = await Promise.all([
     fmpGet(`/profile/${symbol}`),
     fmpGet(`/key-metrics-ttm/${symbol}`),
-    fmpGet(`/ratios/${symbol}`, { limit: 5 }),  // last 5 annual reports for 5yr PE avg
+    fmpGet(`/ratios/${symbol}`, { limit: 5 }),
   ]);
 
-  const p = Array.isArray(profile)  ? profile[0]  : null;
-  const m = Array.isArray(metrics)  ? metrics[0]  : null;
-  const r = Array.isArray(ratios)   ? ratios       : null;
+  const p = Array.isArray(profile) ? profile[0] : null;
+  const m = Array.isArray(metrics) ? metrics[0] : null;
+  const r = Array.isArray(ratios)  ? ratios      : null;
 
-  // Trailing P/E: prefer key-metrics-ttm peRatioTTM, fallback to profile pe
+  // If all three calls returned nothing, FMP key is probably invalid
+  if (!p && !m && !r) return null;
+
+  // Trailing P/E
   const pe = m?.peRatioTTM ?? p?.pe ?? null;
 
-  // 5-year average P/E from annual ratios (filter out nulls and negatives)
+  // 5-year average P/E from annual ratios
   let pe5yAvg = null;
   if (r?.length) {
-    const peVals = r.map(x => x.priceEarningsRatio).filter(v => v != null && v > 0 && v < 1000);
-    if (peVals.length) pe5yAvg = +(peVals.reduce((a, b) => a + b, 0) / peVals.length).toFixed(1);
+    const peVals = r.map(x => x.priceEarningsRatio)
+      .filter(v => v != null && v > 0 && v < 1000);
+    if (peVals.length)
+      pe5yAvg = +(peVals.reduce((a, b) => a + b, 0) / peVals.length).toFixed(1);
   }
 
-  // FCF yield = freeCashFlowPerShareTTM / current price
-  // FMP key-metrics-ttm provides fcfYieldTTM directly (as a decimal, e.g. 0.035)
-  const fcfYield = m?.fcfYieldTTM ?? null;
-
-  // EPS TTM
+  // EPS TTM (free tier field)
   const eps = m?.epsTTM ?? p?.eps ?? null;
 
+  // FCF per share TTM (free tier field on key-metrics-ttm)
+  const fcfPerShare  = m?.freeCashFlowPerShareTTM ?? null;
+  const currentPrice = p?.price ?? null;
+
+  // Compute FCF yield = FCF per share / price (instead of premium fcfYieldTTM)
+  let fcfYield = null;
+  if (fcfPerShare != null && currentPrice != null && currentPrice > 0) {
+    fcfYield = +(fcfPerShare / currentPrice).toFixed(4);
+  }
+
   return {
-    pe:       pe   != null ? +pe.toFixed(2)      : null,
-    pe5yAvg:  pe5yAvg,
-    fcfYield: fcfYield != null ? +fcfYield.toFixed(4) : null,
-    eps:      eps  != null ? +eps.toFixed(2)     : null,
+    pe:        pe        != null ? +pe.toFixed(2)   : null,
+    pe5yAvg,
+    fcfYield:  fcfYield  != null ? fcfYield          : null,
+    fcfPerShare: fcfPerShare != null ? +fcfPerShare.toFixed(2) : null,
+    eps:       eps       != null ? +eps.toFixed(2)  : null,
+    fmpLoaded: true,   // sentinel — confirms FMP responded successfully
   };
 }
 
@@ -212,10 +229,12 @@ export default async (req) => {
         adv30,
 
         // ── Fundamental (FMP, null if key absent or call failed) ──
-        pe:       fmp?.pe       ?? null,
-        pe5yAvg:  fmp?.pe5yAvg  ?? null,
-        fcfYield: fmp?.fcfYield ?? null,
-        eps:      fmp?.eps      ?? null,
+        pe:          fmp?.pe          ?? null,
+        pe5yAvg:     fmp?.pe5yAvg     ?? null,
+        fcfYield:    fmp?.fcfYield    ?? null,
+        fcfPerShare: fmp?.fcfPerShare ?? null,
+        eps:         fmp?.eps         ?? null,
+        fmpLoaded:   fmp?.fmpLoaded   ?? false,
 
         // ── Raw bars for client charting ──
         bars: bars.map(b => ({ t: b.t, c: b.c, h: b.h, l: b.l, v: b.v })),
