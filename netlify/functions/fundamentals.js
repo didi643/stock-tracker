@@ -15,7 +15,7 @@
 // a concurrency-limited pool so we don't blow the rate limit in one shot.
 
 const ALPACA_DATA = "https://data.alpaca.markets/v2";
-const FMP_BASE    = "https://financialmodelingprep.com/api/v3";
+const FMP_BASE    = "https://financialmodelingprep.com/stable";
 
 // ─── Alpaca helpers ────────────────────────────────────────────────────────────
 
@@ -52,7 +52,8 @@ async function fmpGet(path, params = {}) {
   if (!r.ok) return null;
   const j = await r.json();
   // FMP returns {"Error Message": "..."} on bad key/quota
-  if (j?.["Error Message"] || j?.error) return null;
+  // FMP returns error shapes in both v3 and stable
+  if (j?.["Error Message"] || j?.error || j?.message) return null;
   return j;
 }
 
@@ -71,29 +72,30 @@ async function pool(tasks, limit = 5) {
   return results;
 }
 
-// Fetch fundamental data for a single symbol from FMP.
-// Free tier gives: profile (pe, eps), key-metrics-ttm (peRatioTTM, epsTTM,
-//   freeCashFlowPerShareTTM), ratios (annual priceEarningsRatio for 5yr avg).
-// fcfYieldTTM is a PREMIUM field — we compute FCF yield manually instead:
-//   fcfYield = freeCashFlowPerShareTTM / currentPrice (from profile).
+// Fetch fundamental data for a single symbol using FMP stable API (post-Aug 2025).
+// Stable endpoints: /stable/profile, /stable/key-metrics-ttm, /stable/ratios
+// All use ?symbol=XXX query param (not path segment like v3 did).
+// Free tier fields available: pe, eps, price (profile); peRatioTTM, epsTTM,
+//   freeCashFlowPerShareTTM (key-metrics-ttm); priceEarningsRatio (ratios annual).
 async function fetchFmpFundamentals(symbol) {
   const [profile, metrics, ratios] = await Promise.all([
-    fmpGet(`/profile/${symbol}`),
-    fmpGet(`/key-metrics-ttm/${symbol}`),
-    fmpGet(`/ratios/${symbol}`, { limit: 5 }),
+    fmpGet(`/profile`,         { symbol }),
+    fmpGet(`/key-metrics-ttm`, { symbol }),
+    fmpGet(`/ratios`,          { symbol, limit: 5 }),
   ]);
 
+  // Stable API returns array directly (same structure as v3)
   const p = Array.isArray(profile) ? profile[0] : null;
   const m = Array.isArray(metrics) ? metrics[0] : null;
   const r = Array.isArray(ratios)  ? ratios      : null;
 
-  // If all three calls returned nothing, FMP key is probably invalid
+  // If everything is null, key is invalid or symbol not covered
   if (!p && !m && !r) return null;
 
-  // Trailing P/E
+  // Trailing P/E — peRatioTTM from key-metrics, fallback to pe from profile
   const pe = m?.peRatioTTM ?? p?.pe ?? null;
 
-  // 5-year average P/E from annual ratios
+  // 5-year average P/E from last 5 annual ratio reports
   let pe5yAvg = null;
   if (r?.length) {
     const peVals = r.map(x => x.priceEarningsRatio)
@@ -102,26 +104,24 @@ async function fetchFmpFundamentals(symbol) {
       pe5yAvg = +(peVals.reduce((a, b) => a + b, 0) / peVals.length).toFixed(1);
   }
 
-  // EPS TTM (free tier field)
+  // EPS TTM
   const eps = m?.epsTTM ?? p?.eps ?? null;
 
-  // FCF per share TTM (free tier field on key-metrics-ttm)
+  // FCF yield = freeCashFlowPerShareTTM / current price
   const fcfPerShare  = m?.freeCashFlowPerShareTTM ?? null;
   const currentPrice = p?.price ?? null;
-
-  // Compute FCF yield = FCF per share / price (instead of premium fcfYieldTTM)
   let fcfYield = null;
   if (fcfPerShare != null && currentPrice != null && currentPrice > 0) {
     fcfYield = +(fcfPerShare / currentPrice).toFixed(4);
   }
 
   return {
-    pe:        pe        != null ? +pe.toFixed(2)   : null,
+    pe:          pe          != null ? +pe.toFixed(2)          : null,
     pe5yAvg,
-    fcfYield:  fcfYield  != null ? fcfYield          : null,
-    fcfPerShare: fcfPerShare != null ? +fcfPerShare.toFixed(2) : null,
-    eps:       eps       != null ? +eps.toFixed(2)  : null,
-    fmpLoaded: true,   // sentinel — confirms FMP responded successfully
+    fcfYield:    fcfYield    != null ? fcfYield                 : null,
+    fcfPerShare: fcfPerShare != null ? +fcfPerShare.toFixed(2)  : null,
+    eps:         eps         != null ? +eps.toFixed(2)          : null,
+    fmpLoaded:   true,
   };
 }
 
