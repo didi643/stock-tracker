@@ -74,7 +74,7 @@ async function fetchBars252(symbols, feed) {
         symbols:    batch.join(","),
         timeframe:  "1Day",
         start,
-        limit:      252 * batch.length,
+        limit:      10000,   // Alpaca max; start date bounds the window to ~380 days
         adjustment: "split",
         feed,
       })
