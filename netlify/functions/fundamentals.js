@@ -1,22 +1,25 @@
 // GET /api/fundamentals?symbols=AAPL,MSFT,...
-// Returns per-symbol: { pe, pe5yAvg, high52w, low52w, fcfYield,
-//                       ma50, ma200, rsi14, bars200 }
+// Returns per-symbol technical + fundamental data.
 //
-// Data sources (all Alpaca):
-//   - /v2/stocks/snapshots  → latest quote + daily bar (includes 52w high/low via bars window)
-//   - /v2/stocks/bars       → 252 daily bars for MA50, MA200, RSI14, 52w range
+// Technical (always available — computed from Alpaca daily bars):
+//   ma50, ma200, rsi14, high52w, low52w, pctFrom52wHigh, adv30
 //
-// NOTE: Alpaca free/IEX tier does NOT provide fundamental PE or FCF data.
-// We therefore:
-//   - Derive 52w high/low from 252-day price bars (exact, always available)
-//   - Compute MA50, MA200, RSI14 from those same bars
-//   - Return pe / pe5yAvg / fcfYield as null (frontend DCF uses configurable assumptions)
-// If you upgrade to Alpaca's "Broker" plan or add a separate fundamentals provider
-// (e.g. Financial Modeling Prep), swap in that data here without touching the frontend.
+// Fundamental (requires FMP_API_KEY env var):
+//   pe         — trailing twelve-month P/E
+//   pe5yAvg    — 5-year average P/E from annual ratios
+//   fcfYield   — free cash flow yield (FCF per share / price)
+//   eps        — diluted EPS TTM
+//
+// FMP free tier: 250 calls/day, 1 symbol per call.
+// We fetch 3 endpoints per symbol (profile, key-metrics-ttm, ratios) using
+// a concurrency-limited pool so we don't blow the rate limit in one shot.
 
 const ALPACA_DATA = "https://data.alpaca.markets/v2";
+const FMP_BASE    = "https://financialmodelingprep.com/api/v3";
 
-function authHeaders() {
+// ─── Alpaca helpers ────────────────────────────────────────────────────────────
+
+function alpacaHeaders() {
   return {
     "APCA-API-KEY-ID":     process.env.APCA_API_KEY_ID,
     "APCA-API-SECRET-KEY": process.env.APCA_API_SECRET_KEY,
@@ -25,12 +28,12 @@ function authHeaders() {
 
 async function alpacaGet(path, params) {
   const qs = new URLSearchParams(params).toString();
-  const r  = await fetch(`${ALPACA_DATA}${path}?${qs}`, { headers: authHeaders() });
+  const r  = await fetch(`${ALPACA_DATA}${path}?${qs}`, { headers: alpacaHeaders() });
   if (!r.ok) throw new Error(`Alpaca ${path} ${r.status}: ${await r.text()}`);
   return r.json();
 }
 
-const toAlpaca  = s => s.replace("-", ".");
+const toAlpaca   = s => s.replace("-", ".");
 const fromAlpaca = s => s.replace(".", "-");
 
 function chunks(arr, n) {
@@ -39,16 +42,80 @@ function chunks(arr, n) {
   return out;
 }
 
-// ── Technical indicators ──────────────────────────────────────────────────────
+// ─── FMP helpers ───────────────────────────────────────────────────────────────
 
-/** Simple Moving Average over last `n` closes */
-function sma(closes, n) {
-  if (closes.length < n) return null;
-  const window = closes.slice(-n);
-  return window.reduce((a, b) => a + b, 0) / n;
+async function fmpGet(path, params = {}) {
+  const key = process.env.FMP_API_KEY;
+  if (!key) return null;
+  const qs = new URLSearchParams({ ...params, apikey: key }).toString();
+  const r  = await fetch(`${FMP_BASE}${path}?${qs}`);
+  if (!r.ok) return null;
+  const j = await r.json();
+  // FMP returns {"Error Message": "..."} on bad key/quota
+  if (j?.["Error Message"] || j?.error) return null;
+  return j;
 }
 
-/** RSI-14 using Wilder's smoothed average */
+// Run `tasks` (array of () => Promise) with at most `limit` in flight at once
+async function pool(tasks, limit = 5) {
+  const results = new Array(tasks.length);
+  let idx = 0;
+  async function worker() {
+    while (idx < tasks.length) {
+      const i = idx++;
+      try { results[i] = await tasks[i](); }
+      catch { results[i] = null; }
+    }
+  }
+  await Promise.all(Array.from({ length: limit }, worker));
+  return results;
+}
+
+// Fetch fundamental data for a single symbol from FMP (3 calls)
+async function fetchFmpFundamentals(symbol) {
+  const [profile, metrics, ratios] = await Promise.all([
+    fmpGet(`/profile/${symbol}`),
+    fmpGet(`/key-metrics-ttm/${symbol}`),
+    fmpGet(`/ratios/${symbol}`, { limit: 5 }),  // last 5 annual reports for 5yr PE avg
+  ]);
+
+  const p = Array.isArray(profile)  ? profile[0]  : null;
+  const m = Array.isArray(metrics)  ? metrics[0]  : null;
+  const r = Array.isArray(ratios)   ? ratios       : null;
+
+  // Trailing P/E: prefer key-metrics-ttm peRatioTTM, fallback to profile pe
+  const pe = m?.peRatioTTM ?? p?.pe ?? null;
+
+  // 5-year average P/E from annual ratios (filter out nulls and negatives)
+  let pe5yAvg = null;
+  if (r?.length) {
+    const peVals = r.map(x => x.priceEarningsRatio).filter(v => v != null && v > 0 && v < 1000);
+    if (peVals.length) pe5yAvg = +(peVals.reduce((a, b) => a + b, 0) / peVals.length).toFixed(1);
+  }
+
+  // FCF yield = freeCashFlowPerShareTTM / current price
+  // FMP key-metrics-ttm provides fcfYieldTTM directly (as a decimal, e.g. 0.035)
+  const fcfYield = m?.fcfYieldTTM ?? null;
+
+  // EPS TTM
+  const eps = m?.epsTTM ?? p?.eps ?? null;
+
+  return {
+    pe:       pe   != null ? +pe.toFixed(2)      : null,
+    pe5yAvg:  pe5yAvg,
+    fcfYield: fcfYield != null ? +fcfYield.toFixed(4) : null,
+    eps:      eps  != null ? +eps.toFixed(2)     : null,
+  };
+}
+
+// ─── Technical indicators ──────────────────────────────────────────────────────
+
+function sma(closes, n) {
+  if (closes.length < n) return null;
+  return +(closes.slice(-n).reduce((a, b) => a + b, 0) / n).toFixed(2);
+}
+
+// RSI-14 using Wilder's simple 14-period seed (good enough for daily bars)
 function rsi14(closes) {
   if (closes.length < 15) return null;
   const slice = closes.slice(-15);
@@ -61,11 +128,11 @@ function rsi14(closes) {
   const avgGain = gains  / 14;
   const avgLoss = losses / 14;
   if (avgLoss === 0) return 100;
-  const rs = avgGain / avgLoss;
-  return +(100 - 100 / (1 + rs)).toFixed(2);
+  return +(100 - 100 / (1 + avgGain / avgLoss)).toFixed(2);
 }
 
-/** Fetch 252 daily bars per symbol, batched 100 at a time */
+// ─── Alpaca bars ───────────────────────────────────────────────────────────────
+
 async function fetchBars252(symbols, feed) {
   const start = new Date(Date.now() - 380 * 86400_000).toISOString().slice(0, 10);
   const results = await Promise.all(
@@ -74,7 +141,7 @@ async function fetchBars252(symbols, feed) {
         symbols:    batch.join(","),
         timeframe:  "1Day",
         start,
-        limit:      10000,   // Alpaca max; start date bounds the window to ~380 days
+        limit:      10000,
         adjustment: "split",
         feed,
       })
@@ -89,13 +156,14 @@ async function fetchBars252(symbols, feed) {
   return out;
 }
 
-// ── Handler ───────────────────────────────────────────────────────────────────
+// ─── Handler ───────────────────────────────────────────────────────────────────
 
 export default async (req) => {
   const url  = new URL(req.url);
   const syms = (url.searchParams.get("symbols") || "")
     .split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
   const feed = process.env.ALPACA_FEED || "iex";
+  const hasFmp = !!process.env.FMP_API_KEY;
 
   if (!syms.length) {
     return new Response(JSON.stringify({ error: "symbols required" }), {
@@ -104,52 +172,61 @@ export default async (req) => {
   }
 
   try {
-    const barMap = await fetchBars252(syms, feed);
+    // Fetch Alpaca bars + FMP fundamentals in parallel
+    // FMP calls are concurrency-limited to 5 in-flight to respect rate limits
+    const [barMap, fmpResults] = await Promise.all([
+      fetchBars252(syms, feed),
+      hasFmp
+        ? pool(syms.map(sym => () => fetchFmpFundamentals(sym)), 5)
+        : Promise.resolve(syms.map(() => null)),
+    ]);
 
     const fundamentals = {};
-    for (const sym of syms) {
+    syms.forEach((sym, i) => {
       const bars = barMap[sym] || [];
-      if (bars.length < 2) { fundamentals[sym] = null; continue; }
+      const fmp  = fmpResults[i];
+
+      if (bars.length < 2) { fundamentals[sym] = null; return; }
 
       const closes  = bars.map(b => b.c);
       const highs   = bars.map(b => b.h);
       const lows    = bars.map(b => b.l);
       const volumes = bars.map(b => b.v);
-
       const last    = closes[closes.length - 1];
       const high52w = Math.max(...highs);
       const low52w  = Math.min(...lows);
 
-      // Average daily volume (last 30 sessions) — useful for liquidity context
       const adv30 = closes.length >= 30
-        ? volumes.slice(-30).reduce((a, b) => a + b, 0) / 30
+        ? Math.round(volumes.slice(-30).reduce((a, b) => a + b, 0) / 30)
         : null;
 
       fundamentals[sym] = {
-        // Price-derived technicals
-        ma50:    sma(closes, 50),
-        ma200:   sma(closes, 200),
-        rsi14:   rsi14(closes),
-        high52w: +high52w.toFixed(2),
-        low52w:  +low52w.toFixed(2),
-        pctFrom52wHigh: last && high52w ? +((last - high52w) / high52w * 100).toFixed(2) : null,
-        adv30:   adv30 ? Math.round(adv30) : null,
+        // ── Technical (always present) ──
+        ma50:           sma(closes, 50),
+        ma200:          sma(closes, 200),
+        rsi14:          rsi14(closes),
+        high52w:        +high52w.toFixed(2),
+        low52w:         +low52w.toFixed(2),
+        pctFrom52wHigh: last && high52w
+          ? +((last - high52w) / high52w * 100).toFixed(2) : null,
+        adv30,
 
-        // Fundamental fields (null unless a richer data provider is wired in)
-        pe:       null,   // trailing P/E
-        pe5yAvg:  null,   // 5-year average P/E
-        fcfYield: null,   // free cash flow yield
+        // ── Fundamental (FMP, null if key absent or call failed) ──
+        pe:       fmp?.pe       ?? null,
+        pe5yAvg:  fmp?.pe5yAvg  ?? null,
+        fcfYield: fmp?.fcfYield ?? null,
+        eps:      fmp?.eps      ?? null,
 
-        // Raw bars for client-side use (last 252 daily closes)
+        // ── Raw bars for client charting ──
         bars: bars.map(b => ({ t: b.t, c: b.c, h: b.h, l: b.l, v: b.v })),
       };
-    }
+    });
 
-    return new Response(JSON.stringify({ fundamentals }), {
+    return new Response(JSON.stringify({ fundamentals, hasFmp }), {
       status: 200,
       headers: {
-        "content-type": "application/json",
-        "cache-control": "public, max-age=3600",   // fundamentals stale OK for 1h
+        "content-type":  "application/json",
+        "cache-control": "public, max-age=3600",
       },
     });
   } catch (e) {

@@ -44,19 +44,25 @@ const M = {
   },
 
   // ── DCF Intrinsic Value ─────────────────────────────────────────────────────
-  // Uses EPS as a proxy for free cash flow when full FCF data unavailable.
-  // Formula: sum(FCF_t / (1+r)^t) + terminal value / (1+r)^n
-  // Since we lack EPS from Alpaca free tier, we use a normalized revenue proxy:
-  //   assume FCF = price * 0.05 (a 5% FCF yield baseline) as starting point.
-  // When real FCF yield is available it's used instead.
+  // Priority for FCF starting point (best → fallback):
+  //   1. Real FCF yield from FMP  → fcfYield * price  (most accurate)
+  //   2. Real EPS from FMP        → use EPS directly as FCF proxy
+  //   3. 5% yield proxy           → price * 0.05      (rough estimate, labelled)
+  // Formula: PV = Σ FCF_t/(1+r)^t  +  terminal_value/(1+r)^n
   dcfFairValue: (price, f, cfg) => {
     if (price == null) return null;
     const { discountRate: r, revenueGrowth: g, terminalGrowth: tg, projectionYears: n } = cfg;
     if (r <= tg) return null;  // guard: Gordon Growth Model requires r > tg
 
-    // FCF per share: prefer real fcfYield from fundamentals, else 5% yield proxy
-    const yieldBase  = f?.fcfYield ?? 0.05;
-    let fcf          = price * yieldBase;
+    // FCF per share: best available input
+    let fcf;
+    if (f?.fcfYield != null && f.fcfYield > 0) {
+      fcf = price * f.fcfYield;          // real FCF yield × price
+    } else if (f?.eps != null && f.eps > 0) {
+      fcf = f.eps;                        // EPS as FCF proxy
+    } else {
+      fcf = price * 0.05;                 // 5% yield fallback
+    }
 
     let pv = 0;
     for (let t = 1; t <= n; t++) {
@@ -737,17 +743,32 @@ async function openDetail(symbol) {
   $("#m-price").textContent  = q ? `$${fmt(q.last)}` : "—";
   $("#m-change").innerHTML   = chip(q?.changePct);
 
+  // Data quality badge
+  const f = state.fundamentals[symbol];
+  const dcfSource = f?.fcfYield != null ? "FCF Yield (FMP)"
+                  : f?.eps      != null ? "EPS (FMP)"
+                  : "5% yield proxy";
+  const hasFmpData = f?.pe != null || f?.fcfYield != null;
+  const dataBadge = hasFmpData
+    ? `<span class="text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded text-xs">✓ FMP fundamentals loaded</span>`
+    : `<span class="text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded text-xs">⚠ No FMP key — DCF uses ${dcfSource}</span>`;
+
   // Metrics grid
   document.getElementById("m-metrics").innerHTML = `
+    <div class="mb-2">${dataBadge}</div>
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 my-3 text-sm">
-      ${metricCard("Score",      scoreBar(m.score))}
-      ${metricCard("Zone",       zoneChip(m.zone))}
-      ${metricCard("RSI-14",     m.rsi != null ? m.rsi : "—")}
-      ${metricCard("MA 50",      "$"+fmt(m.ma50))}
-      ${metricCard("MA 200",     "$"+fmt(m.ma200))}
-      ${metricCard("52w High",   "$"+fmt(m.high52w))}
-      ${metricCard("Drawdown",   m.drawdown != null ? m.drawdown.toFixed(1)+"%" : "—")}
-      ${metricCard("Fair Value", "$"+fmt(m.fairValue))}
+      ${metricCard("Score",            scoreBar(m.score))}
+      ${metricCard("Zone",             zoneChip(m.zone))}
+      ${metricCard("RSI-14",           m.rsi != null ? m.rsi : "—")}
+      ${metricCard("MA 50",            "$"+fmt(m.ma50))}
+      ${metricCard("MA 200",           "$"+fmt(m.ma200))}
+      ${metricCard("52w High",         "$"+fmt(m.high52w))}
+      ${metricCard("Drawdown",         m.drawdown != null ? m.drawdown.toFixed(1)+"%" : "—")}
+      ${metricCard("P/E (TTM)",        f?.pe      != null ? f.pe      : "—")}
+      ${metricCard("P/E 5yr Avg",      f?.pe5yAvg != null ? f.pe5yAvg : "—")}
+      ${metricCard("FCF Yield",        f?.fcfYield!= null ? (f.fcfYield*100).toFixed(1)+"%" : "—")}
+      ${metricCard("EPS (TTM)",        f?.eps     != null ? "$"+fmt(f.eps) : "—")}
+      ${metricCard("Fair Value",       "$"+fmt(m.fairValue)+" <span class='text-slate-400 text-xs font-normal'>("+dcfSource+")</span>")}
       ${metricCard("Margin of Safety", m.mos != null ? m.mos.toFixed(1)+"%" : "—")}
     </div>`;
 
