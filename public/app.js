@@ -3,6 +3,7 @@
 
 const REFRESH_MS  = 30_000;
 const FUND_TTL_MS = 3_600_000;   // re-fetch fundamentals every 1h
+const NEWS_TTL_MS = 900_000;     // re-fetch news every 15 min
 const FAV_KEY     = "stock-tracker.favorites.v1";
 const ALERT_KEY   = "stock-tracker.alerts.v1";
 const CFG_KEY     = "stock-tracker.config.v1";
@@ -84,52 +85,57 @@ const M = {
 
   // ── Undervaluation Score 0-100 ──────────────────────────────────────────────
   // Components (each 0-100, then weighted):
-  //   40% — margin of safety vs DCF fair value
-  //   25% — price vs 52w high (drawdown = discount)
-  //   20% — RSI (lower RSI → more undervalued signal)
+  //   35% — margin of safety vs DCF fair value
+  //   22% — price vs 52w high (drawdown = discount)
+  //   18% — RSI (lower RSI → more undervalued signal)
   //   15% — P/E vs 5y avg P/E (when available)
-  undervaluationScore: (price, f, cfg) => {
-    const weights = { mos: 0.40, hi52: 0.25, rsi: 0.20, pe: 0.15 };
+  //   10% — news sentiment (positive news = higher score)
+  undervaluationScore: (price, f, cfg, sentimentScore) => {
+    const weights = { mos: 0.35, hi52: 0.22, rsi: 0.18, pe: 0.15, sent: 0.10 };
 
     // 1. Margin-of-safety component
     const fv  = M.dcfFairValue(price, f, cfg);
     const mos = M.marginOfSafety(price, fv);
-    // mos of +25% → 100pts; 0% → 50pts; negative (overvalued) → 0pts
     const mosScore = mos == null ? 50
       : Math.max(0, Math.min(100, 50 + mos * 2));
 
     // 2. 52-week high component
-    // drawdown of -30% → 100pts; 0% → 0pts; above high impossible here
     const dd = M.drawdownFrom52wHigh(f);
     const hi52Score = dd == null ? 50
-      : Math.max(0, Math.min(100, -dd * (100 / 40)));  // 40% drop = max score
+      : Math.max(0, Math.min(100, -dd * (100 / 40)));
 
     // 3. RSI component
-    const rsiVal    = M.rsi(f);
-    const rsiScore  = rsiVal == null ? 50
-      : Math.max(0, Math.min(100, (70 - rsiVal) * (100 / 70)));  // RSI 0→100, RSI 70→0
+    const rsiVal   = M.rsi(f);
+    const rsiScore = rsiVal == null ? 50
+      : Math.max(0, Math.min(100, (70 - rsiVal) * (100 / 70)));
 
-    // 4. PE component (0 when unavailable → weight redistributed)
+    // 4. PE component (null → weight redistributed)
     let peScore = null;
     if (f?.pe != null && f?.pe5yAvg != null && f.pe5yAvg > 0) {
       const ratio = f.pe / f.pe5yAvg;
       peScore = Math.max(0, Math.min(100, (1 - ratio) * 100 + 50));
     }
 
-    // Redistribute weight if PE unavailable
-    const hasPE = peScore != null;
-    const w = hasWeight => hasWeight ? weights : {
-      mos: weights.mos + weights.pe * 0.40 / 0.85,
-      hi52: weights.hi52 + weights.pe * 0.25 / 0.85,
-      rsi:  weights.rsi  + weights.pe * 0.20 / 0.85,
-      pe: 0,
-    };
-    const wt = w(hasPE);
+    // 5. Sentiment component: score -1→+1 mapped to 0→100
+    // Positive sentiment means market attention is constructive → mild boost.
+    // Negative sentiment → penalise (could signal deteriorating fundamentals).
+    let sentScore = null;
+    if (sentimentScore != null) {
+      sentScore = Math.max(0, Math.min(100, (sentimentScore + 1) * 50));
+    }
 
-    const score = mosScore * wt.mos
-                + hi52Score * wt.hi52
-                + rsiScore  * wt.rsi
-                + (hasPE ? peScore * wt.pe : 0);
+    // Redistribute weights for unavailable components
+    const hasPE   = peScore  != null;
+    const hasSent = sentScore != null;
+    const missing = (!hasPE ? weights.pe : 0) + (!hasSent ? weights.sent : 0);
+    const active  = 1 - missing;
+    const scale   = active > 0 ? 1 / active : 1;
+
+    const score = (mosScore  * weights.mos
+                 + hi52Score * weights.hi52
+                 + rsiScore  * weights.rsi
+                 + (hasPE   ? peScore   * weights.pe   : 0)
+                 + (hasSent ? sentScore * weights.sent : 0)) * scale;
 
     return Math.round(Math.max(0, Math.min(100, score)));
   },
@@ -160,6 +166,8 @@ const state = {
   quotes:        {},
   fundamentals:  {},
   fundFetchedAt: {},
+  news:          {},   // symbol -> { articles, sentimentScore }
+  newsFetchedAt: {},
   alerts:        JSON.parse(localStorage.getItem(ALERT_KEY) || "[]"),
   duration:      "1d",
   tab:           "sectors",
@@ -248,6 +256,28 @@ async function fetchFundamentals(symbols) {
   }
 }
 
+async function fetchNews(symbols) {
+  if (!symbols.length) return;
+  const stale = symbols.filter(s => {
+    const t = state.newsFetchedAt[s];
+    return !t || Date.now() - t > NEWS_TTL_MS;
+  });
+  if (!stale.length) return;
+  // Batch 10 at a time (Alpaca news limit per call)
+  const urls = chunks(stale, 10).map(c =>
+    `/api/news?symbols=${c.join(",")}&limit=10`);
+  const responses = await Promise.allSettled(
+    urls.map(u => fetch(u).then(r => r.ok ? r.json() : null))
+  );
+  for (const res of responses) {
+    if (res.status !== "fulfilled" || !res.value) continue;
+    for (const [sym, data] of Object.entries(res.value.news || {})) {
+      state.news[sym] = data;
+      state.newsFetchedAt[sym] = Date.now();
+    }
+  }
+}
+
 function visibleSymbols() {
   if (state.tab === "favorites") return [...state.favorites];
   return state.universe.map(s => s.symbol);
@@ -260,6 +290,7 @@ async function refresh() {
     const [newQuotes] = await Promise.all([
       fetchQuotes(syms),
       fetchFundamentals(syms),
+      fetchNews(syms),
     ]);
     state.quotes = { ...state.quotes, ...newQuotes };
     checkAlerts();
@@ -339,6 +370,13 @@ const chip = pct => {
   return `<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold ${cls}">${sign}${pct.toFixed(2)}%</span>`;
 };
 
+const sentimentChip = score => {
+  if (score == null) return `<span class="text-slate-300 text-xs">—</span>`;
+  if (score >  0.15) return `<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-800">▲ Positive</span>`;
+  if (score < -0.15) return `<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-800">▼ Negative</span>`;
+  return `<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-600">● Neutral</span>`;
+};
+
 const zoneChip = zone => {
   if (!zone) return "";
   const cls = zone === "Strong Buy" ? "bg-green-600 text-white"
@@ -368,20 +406,24 @@ const starBtn = sym => {
 function metricFor(sym) {
   const q     = state.quotes[sym];
   const f     = state.fundamentals[sym];
+  const n     = state.news[sym];
   const price = q?.last ?? null;
+  const fv    = M.dcfFairValue(price, f, state.cfg);
   return {
     price,
-    changePct: q?.changePct ?? null,
-    rsi:       M.rsi(f),
-    ma50:      M.ma50(f),
-    ma200:     M.ma200(f),
-    drawdown:  M.drawdownFrom52wHigh(f),
-    fairValue: M.dcfFairValue(price, f, state.cfg),
-    mos:       M.marginOfSafety(price, M.dcfFairValue(price, f, state.cfg)),
-    score:     M.undervaluationScore(price, f, state.cfg),
-    zone:      M.buyZone(price, f, state.cfg),
-    high52w:   f?.high52w ?? null,
-    low52w:    f?.low52w  ?? null,
+    changePct:      q?.changePct ?? null,
+    rsi:            M.rsi(f),
+    ma50:           M.ma50(f),
+    ma200:          M.ma200(f),
+    drawdown:       M.drawdownFrom52wHigh(f),
+    fairValue:      fv,
+    mos:            M.marginOfSafety(price, fv),
+    score:          M.undervaluationScore(price, f, state.cfg, n?.sentimentScore ?? null),
+    zone:           M.buyZone(price, f, state.cfg),
+    high52w:        f?.high52w ?? null,
+    low52w:         f?.low52w  ?? null,
+    sentimentScore: n?.sentimentScore ?? null,
+    articles:       n?.articles ?? [],
   };
 }
 
@@ -474,6 +516,7 @@ function rowHtml(s, showValue = false) {
       <td class="py-2 px-2 text-right font-mono text-sm">${m.drawdown != null ? m.drawdown.toFixed(1)+"%" : "—"}</td>
       <td class="py-2 px-2 text-right font-mono text-sm">${m.mos != null ? m.mos.toFixed(1)+"%" : "—"}</td>
       <td class="py-2 px-2 text-right font-mono text-sm">$${fmt(m.fairValue)}</td>
+      <td class="py-2 px-2 text-center">${sentimentChip(m.sentimentScore)}</td>
     </tr>`;
 }
 
@@ -494,7 +537,8 @@ function tableHtml(stocks, showValue = false) {
     <th class="py-2 px-2 text-right">MA200</th>
     <th class="py-2 px-2 text-right">Drawdown</th>
     <th class="py-2 px-2 text-right">MoS%</th>
-    <th class="py-2 px-2 text-right">Fair Value</th>` : `<th class="py-2 px-2">Industry</th>`;
+    <th class="py-2 px-2 text-right">Fair Value</th>
+    <th class="py-2 px-2 text-center">Sentiment</th>` : `<th class="py-2 px-2">Industry</th>`;
 
   return `
     <table class="w-full text-sm">
@@ -597,6 +641,7 @@ function renderValue() {
             <th class="py-2 px-2 text-right">Drawdown</th>
             <th class="py-2 px-2 text-right">MoS%</th>
             <th class="py-2 px-2 text-right">Fair Value</th>
+            <th class="py-2 px-2 text-center">Sentiment</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -768,15 +813,21 @@ async function openDetail(symbol) {
       ${metricCard("P/E 5yr Avg",      f?.pe5yAvg != null ? f.pe5yAvg : "—")}
       ${metricCard("FCF Yield",        f?.fcfYield!= null ? (f.fcfYield*100).toFixed(1)+"%" : "—")}
       ${metricCard("EPS (TTM)",        f?.eps     != null ? "$"+fmt(f.eps) : "—")}
-      ${metricCard("Fair Value",       "$"+fmt(m.fairValue)+" <span class='text-slate-400 text-xs font-normal'>("+dcfSource+")</span>")}
-      ${metricCard("Margin of Safety", m.mos != null ? m.mos.toFixed(1)+"%" : "—")}
+      ${metricCard("Sentiment",         sentimentChip(m.sentimentScore))}
+      ${metricCard("Fair Value",         "$"+fmt(m.fairValue)+" <span class='text-slate-400 text-xs font-normal'>("+dcfSource+")</span>")}
+      ${metricCard("Margin of Safety",   m.mos != null ? m.mos.toFixed(1)+"%" : "—")}
     </div>`;
 
   $("#modal").classList.remove("hidden");
 
-  const r = await fetch(`/api/bars?symbol=${symbol}&duration=${state.duration}`);
-  const j = await r.json();
-  const bars = j.bars || [];
+  // Fetch chart bars + fresh news in parallel
+  const [barsResp, newsResp] = await Promise.all([
+    fetch(`/api/bars?symbol=${symbol}&duration=${state.duration}`).then(r => r.json()),
+    fetch(`/api/news?symbols=${symbol}&limit=10`).then(r => r.ok ? r.json() : null),
+  ]);
+
+  // Chart
+  const bars = barsResp.bars || [];
   if (chart) chart.destroy();
   const ctx = document.getElementById("m-chart").getContext("2d");
   const up  = bars.length > 1 && bars.at(-1).c >= bars[0].c;
@@ -799,6 +850,43 @@ async function openDetail(symbol) {
       },
     },
   });
+
+  // News feed
+  const articles = newsResp?.news?.[symbol]?.articles ?? [];
+  const newsFeed = document.getElementById("m-news");
+  if (newsFeed) {
+    if (!articles.length) {
+      newsFeed.innerHTML = `<p class="text-slate-400 text-sm py-3">No recent news found.</p>`;
+    } else {
+      newsFeed.innerHTML = articles.map(a => {
+        const sentCls = a.sentiment === "positive" ? "bg-green-100 text-green-800"
+                      : a.sentiment === "negative" ? "bg-red-100 text-red-800"
+                      : "bg-slate-100 text-slate-500";
+        const ago = timeAgo(a.publishedAt);
+        return `
+          <a href="${a.url}" target="_blank" rel="noopener noreferrer"
+             class="block border-b last:border-0 py-3 hover:bg-slate-50 group">
+            <div class="flex items-start gap-2">
+              <span class="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0 ${sentCls}">${a.sentiment}</span>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-slate-800 group-hover:text-blue-600 leading-snug">${a.headline}</p>
+                ${a.summary ? `<p class="text-xs text-slate-500 mt-0.5 line-clamp-2">${a.summary}</p>` : ""}
+                <p class="text-xs text-slate-400 mt-1">${a.source} · ${ago}</p>
+              </div>
+            </div>
+          </a>`;
+      }).join("");
+    }
+  }
+}
+
+function timeAgo(isoStr) {
+  const diff = Date.now() - new Date(isoStr).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 60)  return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24)  return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }
 
 function metricCard(label, value) {
