@@ -33,38 +33,38 @@ async function alpacaGet(path, params) {
   return r.json();
 }
 
-// Fetch latest trades for a batch (≤200 symbols per call per Alpaca limits)
-async function latestTrades(symbols, feed) {
-  const out = {};
-  for (let i = 0; i < symbols.length; i += 200) {
-    const batch = symbols.slice(i, i + 200);
-    const data = await alpacaGet("/stocks/trades/latest", {
-      symbols: batch.join(","),
-      feed,
-    });
-    Object.assign(out, data.trades || {});
-  }
+// Alpaca limit is 100 symbols per call for these endpoints.
+const BATCH = 100;
+
+function chunks(arr, n) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
   return out;
 }
 
-// Fetch daily bars for the lookback window
+// Fetch latest trades, batched + parallel
+async function latestTrades(symbols, feed) {
+  const results = await Promise.all(chunks(symbols, BATCH).map(batch =>
+    alpacaGet("/stocks/trades/latest", { symbols: batch.join(","), feed })
+  ));
+  return Object.assign({}, ...results.map(r => r.trades || {}));
+}
+
+// Fetch daily bars, batched + parallel
 async function bars(symbols, windowDays, feed) {
-  const out = {};
   const start = new Date(Date.now() - windowDays * 86400_000)
     .toISOString().slice(0, 10);
-  for (let i = 0; i < symbols.length; i += 200) {
-    const batch = symbols.slice(i, i + 200);
-    const data = await alpacaGet("/stocks/bars", {
-      symbols: batch.join(","),
-      timeframe: "1Day",
+  const results = await Promise.all(chunks(symbols, BATCH).map(batch =>
+    alpacaGet("/stocks/bars", {
+      symbols:    batch.join(","),
+      timeframe:  "1Day",
       start,
-      limit: windowDays * batch.length,
+      limit:      windowDays * batch.length,
       adjustment: "split",
       feed,
-    });
-    Object.assign(out, data.bars || {});
-  }
-  return out;
+    })
+  ));
+  return Object.assign({}, ...results.map(r => r.bars || {}));
 }
 
 export default async (req) => {
@@ -142,7 +142,15 @@ export default async (req) => {
       },
     });
   } catch (e) {
-    return new Response(JSON.stringify({ error: String(e.message || e) }), {
+    // Diagnostic: report whether env vars are present (without leaking values).
+    const diag = {
+      hasKeyId:  !!process.env.APCA_API_KEY_ID,
+      hasSecret: !!process.env.APCA_API_SECRET_KEY,
+      keyIdLen:  (process.env.APCA_API_KEY_ID || "").length,
+      feed:      process.env.ALPACA_FEED || "iex",
+    };
+    console.error("quotes error:", e.message, diag);
+    return new Response(JSON.stringify({ error: String(e.message || e), diag }), {
       status: 502, headers: { "content-type": "application/json" },
     });
   }

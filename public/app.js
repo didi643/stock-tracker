@@ -55,16 +55,19 @@ async function loadUniverse() {
 // ---------- Data fetching ----------
 async function fetchQuotes(symbols) {
   if (!symbols.length) return {};
-  // chunk to keep URLs reasonable
+  // chunk into smaller requests so each function call stays under timeout
+  const CHUNK = 100;
   const out = {};
-  for (let i = 0; i < symbols.length; i += 200) {
-    const chunk = symbols.slice(i, i + 200);
-    const url = `/api/quotes?symbols=${chunk.join(",")}&duration=${state.duration}`;
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(`quotes ${r.status}`);
-    const j = await r.json();
-    Object.assign(out, j.quotes || {});
+  const urls = [];
+  for (let i = 0; i < symbols.length; i += CHUNK) {
+    const c = symbols.slice(i, i + CHUNK);
+    urls.push(`/api/quotes?symbols=${c.join(",")}&duration=${state.duration}`);
   }
+  const responses = await Promise.all(urls.map(u => fetch(u).then(async r => {
+    if (!r.ok) throw new Error(`quotes ${r.status}: ${(await r.text()).slice(0, 200)}`);
+    return r.json();
+  })));
+  for (const j of responses) Object.assign(out, j.quotes || {});
   return out;
 }
 
