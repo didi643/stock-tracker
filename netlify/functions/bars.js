@@ -15,7 +15,7 @@ const DURATIONS = {
 
 export default async (req) => {
   const url    = new URL(req.url);
-  const symbol = (url.searchParams.get("symbol") || "").toUpperCase();
+  const symbol = (url.searchParams.get("symbol") || "").toUpperCase().replace("-", ".");
   const dur    = url.searchParams.get("duration") || "1m";
   const cfg    = DURATIONS[dur] || DURATIONS["1m"];
   const feed   = process.env.ALPACA_FEED || "iex";

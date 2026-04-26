@@ -36,6 +36,15 @@ async function alpacaGet(path, params) {
 // Alpaca limit is 100 symbols per call for these endpoints.
 const BATCH = 100;
 
+// Alpaca uses dots for share classes (BRK.B, BF.B); our CSV uses dashes.
+const toAlpaca = s => s.replace("-", ".");
+const fromAlpaca = s => s.replace(".", "-");
+const remap = obj => {
+  const out = {};
+  for (const [k, v] of Object.entries(obj || {})) out[fromAlpaca(k)] = v;
+  return out;
+};
+
 function chunks(arr, n) {
   const out = [];
   for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
@@ -44,17 +53,17 @@ function chunks(arr, n) {
 
 // Fetch latest trades, batched + parallel
 async function latestTrades(symbols, feed) {
-  const results = await Promise.all(chunks(symbols, BATCH).map(batch =>
+  const results = await Promise.all(chunks(symbols.map(toAlpaca), BATCH).map(batch =>
     alpacaGet("/stocks/trades/latest", { symbols: batch.join(","), feed })
   ));
-  return Object.assign({}, ...results.map(r => r.trades || {}));
+  return Object.assign({}, ...results.map(r => remap(r.trades)));
 }
 
 // Fetch daily bars, batched + parallel
 async function bars(symbols, windowDays, feed) {
   const start = new Date(Date.now() - windowDays * 86400_000)
     .toISOString().slice(0, 10);
-  const results = await Promise.all(chunks(symbols, BATCH).map(batch =>
+  const results = await Promise.all(chunks(symbols.map(toAlpaca), BATCH).map(batch =>
     alpacaGet("/stocks/bars", {
       symbols:    batch.join(","),
       timeframe:  "1Day",
@@ -64,7 +73,7 @@ async function bars(symbols, windowDays, feed) {
       feed,
     })
   ));
-  return Object.assign({}, ...results.map(r => r.bars || {}));
+  return Object.assign({}, ...results.map(r => remap(r.bars)));
 }
 
 export default async (req) => {
@@ -142,15 +151,8 @@ export default async (req) => {
       },
     });
   } catch (e) {
-    // Diagnostic: report whether env vars are present (without leaking values).
-    const diag = {
-      hasKeyId:  !!process.env.APCA_API_KEY_ID,
-      hasSecret: !!process.env.APCA_API_SECRET_KEY,
-      keyIdLen:  (process.env.APCA_API_KEY_ID || "").length,
-      feed:      process.env.ALPACA_FEED || "iex",
-    };
-    console.error("quotes error:", e.message, diag);
-    return new Response(JSON.stringify({ error: String(e.message || e), diag }), {
+    console.error("quotes error:", e.message);
+    return new Response(JSON.stringify({ error: String(e.message || e) }), {
       status: 502, headers: { "content-type": "application/json" },
     });
   }
