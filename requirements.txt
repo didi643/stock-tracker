@@ -1,0 +1,2 @@
+# Deprecated - this project uses Node.js (Netlify Functions), not Python.
+# See package.json and netlify/functions/.

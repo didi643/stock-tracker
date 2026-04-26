@@ -1,0 +1,17 @@
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# Cache the static S&P 500 list aggressively
+[[headers]]
+  for = "/sp500.csv"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"

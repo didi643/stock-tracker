@@ -1,0 +1,13 @@
+{
+  "name": "stock-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "S&P 500 dashboard - static frontend + Netlify Functions proxy to Alpaca",
+  "scripts": {
+    "dev": "netlify dev",
+    "deploy": "netlify deploy --prod"
+  },
+  "devDependencies": {
+    "netlify-cli": "^17.0.0"
+  }
+}
