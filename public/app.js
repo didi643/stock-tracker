@@ -81,7 +81,13 @@ async function refresh() {
   try {
     state.quotes = { ...state.quotes, ...(await fetchQuotes(syms)) };
     render();
-    setStatus(`Updated ${new Date().toLocaleTimeString()} · feed: ${state.duration}`);
+    // Detect market state from any quote with marketOpen flag
+    const sample = Object.values(state.quotes).find(q => q);
+    const open   = sample?.marketOpen;
+    const asOf   = sample?.asOf ? new Date(sample.asOf).toLocaleDateString() : "";
+    const tag    = open ? `<span class="text-green-600">● Live</span>`
+                        : `<span class="text-amber-600">● Market closed · last session ${asOf}</span>`;
+    $("#status").innerHTML = `${tag} · updated ${new Date().toLocaleTimeString()}`;
   } catch (e) {
     setStatus(`Error: ${e.message}`);
   }

@@ -6,15 +6,17 @@
 
 const ALPACA_DATA = "https://data.alpaca.markets/v2";
 
-// duration code -> bars timeframe + lookback
+// duration code -> daily bars to look back (sessions ago for the anchor)
+// Anchor = close N sessions before the most recent session.
+// Always fetch a generous window so weekends/holidays don't matter.
 const DURATIONS = {
-  "1d":  { tf: "1Day",  bars: 2  },   // today vs prev close
-  "2d":  { tf: "1Day",  bars: 3  },
-  "1w":  { tf: "1Day",  bars: 7  },
-  "1m":  { tf: "1Day",  bars: 23 },
-  "3m":  { tf: "1Day",  bars: 65 },
-  "ytd": { tf: "1Day",  bars: 260 },
-  "1y":  { tf: "1Day",  bars: 260 },
+  "1d":  { sessionsBack: 1,   windowDays: 7   },
+  "2d":  { sessionsBack: 2,   windowDays: 10  },
+  "1w":  { sessionsBack: 5,   windowDays: 14  },
+  "1m":  { sessionsBack: 21,  windowDays: 45  },
+  "3m":  { sessionsBack: 63,  windowDays: 110 },
+  "ytd": { sessionsBack: null, windowDays: 400 },  // anchor = last bar of prior year
+  "1y":  { sessionsBack: 252, windowDays: 400 },
 };
 
 function authHeaders() {
@@ -45,19 +47,18 @@ async function latestTrades(symbols, feed) {
   return out;
 }
 
-// Fetch bars for the lookback window (one batched call per 200 symbols)
-async function bars(symbols, timeframe, limit, feed) {
+// Fetch daily bars for the lookback window
+async function bars(symbols, windowDays, feed) {
   const out = {};
-  // start = today - (limit * 1.6) calendar days to cover weekends/holidays
-  const start = new Date(Date.now() - limit * 1.6 * 86400_000)
+  const start = new Date(Date.now() - windowDays * 86400_000)
     .toISOString().slice(0, 10);
   for (let i = 0; i < symbols.length; i += 200) {
     const batch = symbols.slice(i, i + 200);
     const data = await alpacaGet("/stocks/bars", {
       symbols: batch.join(","),
-      timeframe,
+      timeframe: "1Day",
       start,
-      limit: limit * batch.length,
+      limit: windowDays * batch.length,
       adjustment: "split",
       feed,
     });
@@ -88,26 +89,48 @@ export default async (req) => {
   try {
     const [trades, barMap] = await Promise.all([
       latestTrades(syms, feed),
-      bars(syms, cfg.tf, cfg.bars, feed),
+      bars(syms, cfg.windowDays, feed),
     ]);
+
+    // YTD anchor = last close of previous calendar year
+    const yearStart = new Date(new Date().getUTCFullYear(), 0, 1).toISOString().slice(0, 10);
 
     const quotes = {};
     for (const s of syms) {
-      const t  = trades[s];
       const bs = barMap[s] || [];
-      if (!t || bs.length === 0) { quotes[s] = null; continue; }
+      if (bs.length === 0) { quotes[s] = null; continue; }
 
-      const last = t.p;
-      // anchor = close of the bar `cfg.bars - 1` ago, i.e. first bar in window
-      // for 1d: bars=[yesterday, today] -> anchor=yesterday close
-      const anchor = bs[0].c;
+      // Most recent close = last bar's close. This is the source of truth when
+      // the market is closed; when open, latestTrade.p is fresher.
+      const lastBar  = bs[bs.length - 1];
+      const trade    = trades[s];
+      // Use latest trade price only if it's at least as new as the last bar.
+      // Otherwise fall back to the last bar's close (handles weekends/holidays,
+      // and stale trades from halted symbols).
+      const useTrade = trade && new Date(trade.t) >= new Date(lastBar.t);
+      const last     = useTrade ? trade.p : lastBar.c;
+      const ts       = useTrade ? trade.t : lastBar.t;
+
+      // Pick the anchor bar
+      let anchorBar;
+      if (dur === "ytd") {
+        anchorBar = [...bs].reverse().find(b => b.t.slice(0, 10) < yearStart);
+      } else {
+        const idx = Math.max(0, bs.length - 1 - cfg.sessionsBack);
+        anchorBar = bs[idx];
+      }
+      if (!anchorBar) { quotes[s] = null; continue; }
+
+      const anchor    = anchorBar.c;
       const changePct = anchor ? ((last - anchor) / anchor) * 100 : 0;
 
       quotes[s] = {
-        last:      +last.toFixed(2),
-        prev:      +anchor.toFixed(2),
-        changePct: +changePct.toFixed(2),
-        ts:        t.t,
+        last:       +last.toFixed(2),
+        prev:       +anchor.toFixed(2),
+        changePct:  +changePct.toFixed(2),
+        ts,
+        marketOpen: useTrade,                 // true if `last` is a fresh trade
+        asOf:       lastBar.t,                // latest session end
       };
     }
 
