@@ -696,12 +696,163 @@ function renderAlerts() {
   });
 }
 
+// ─── SENTIMENT PAGE ───────────────────────────────────────────────────────────
+function renderSentiment() {
+  // Gather all symbols that have news data loaded
+  const all = state.universe.map(s => {
+    const n = state.news[s.symbol];
+    const q = state.quotes[s.symbol];
+    return { ...s, price: q?.last ?? null, changePct: q?.changePct ?? null,
+             sentimentScore: n?.sentimentScore ?? null, articles: n?.articles ?? [] };
+  }).filter(s => s.sentimentScore != null);
+
+  if (!all.length) {
+    $("#content").innerHTML = `
+      <div class="bg-white rounded shadow-sm p-8 text-center text-slate-500">
+        <p class="text-lg mb-2">No sentiment data loaded yet.</p>
+        <p class="text-sm">Sentiment loads automatically with prices. Wait a moment and hit Refresh.</p>
+      </div>`;
+    return;
+  }
+
+  // Sort strongest first within each bucket
+  const positive = all.filter(s => s.sentimentScore >  0.15).sort((a,b) => b.sentimentScore - a.sentimentScore);
+  const negative = all.filter(s => s.sentimentScore < -0.15).sort((a,b) => a.sentimentScore - b.sentimentScore);
+  const neutral  = all.filter(s => s.sentimentScore >= -0.15 && s.sentimentScore <= 0.15)
+                      .sort((a,b) => Math.abs(b.sentimentScore) - Math.abs(a.sentimentScore));
+
+  // Summary bar
+  const total = all.length;
+  const pPct  = Math.round(positive.length / total * 100);
+  const nPct  = Math.round(negative.length / total * 100);
+  const neuPct = 100 - pPct - nPct;
+
+  const summaryBar = `
+    <div class="bg-white rounded shadow-sm p-4 mb-4">
+      <div class="flex items-center justify-between mb-2">
+        <span class="font-semibold text-sm">Market Sentiment Overview</span>
+        <span class="text-xs text-slate-400">${total} stocks with news · refreshes every 15 min</span>
+      </div>
+      <div class="flex rounded overflow-hidden h-4 mb-3">
+        <div class="bg-green-500 h-full transition-all" style="width:${pPct}%" title="${positive.length} positive"></div>
+        <div class="bg-slate-200 h-full transition-all" style="width:${neuPct}%" title="${neutral.length} neutral"></div>
+        <div class="bg-red-400 h-full transition-all" style="width:${nPct}%" title="${negative.length} negative"></div>
+      </div>
+      <div class="flex gap-4 text-xs">
+        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-green-500 inline-block"></span> Positive ${positive.length} (${pPct}%)</span>
+        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-slate-300 inline-block"></span> Neutral ${neutral.length} (${neuPct}%)</span>
+        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-red-400 inline-block"></span> Negative ${negative.length} (${nPct}%)</span>
+      </div>
+    </div>`;
+
+  const sentimentRow = s => {
+    const bar = sentimentBar(s.sentimentScore);
+    const latestHeadline = s.articles[0];
+    return `
+      <tr class="border-b hover:bg-slate-50 cursor-pointer" data-symbol="${s.symbol}">
+        <td class="py-2 px-3 font-mono font-semibold text-sm">${s.symbol}</td>
+        <td class="py-2 px-3 text-xs text-slate-500 truncate max-w-[120px]">${s.name}</td>
+        <td class="py-2 px-3 text-right font-mono text-sm">$${fmt(s.price)}</td>
+        <td class="py-2 px-3 text-right">${chip(s.changePct)}</td>
+        <td class="py-2 px-3">${bar}</td>
+        <td class="py-2 px-3 text-xs text-slate-500 truncate max-w-[260px]">${latestHeadline ? `<span class="text-slate-700">${latestHeadline.headline}</span> <span class="text-slate-400">· ${timeAgo(latestHeadline.publishedAt)}</span>` : "—"}</td>
+      </tr>`;
+  };
+
+  const tableHead = `
+    <thead class="text-left text-xs uppercase text-slate-500 border-b sticky top-0 bg-white">
+      <tr>
+        <th class="py-2 px-3">Ticker</th>
+        <th class="py-2 px-3">Name</th>
+        <th class="py-2 px-3 text-right">Price</th>
+        <th class="py-2 px-3 text-right">Change</th>
+        <th class="py-2 px-3">Sentiment</th>
+        <th class="py-2 px-3">Latest Headline</th>
+      </tr>
+    </thead>`;
+
+  const positiveBlock = positive.length ? `
+    <div class="bg-white rounded shadow-sm mb-4">
+      <div class="p-3 border-b flex items-center gap-2">
+        <span class="w-2.5 h-2.5 rounded-full bg-green-500 inline-block"></span>
+        <span class="font-semibold text-green-700">Positive Sentiment</span>
+        <span class="text-xs text-slate-400 ml-1">${positive.length} stocks</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          ${tableHead}
+          <tbody>${positive.map(sentimentRow).join("")}</tbody>
+        </table>
+      </div>
+    </div>` : "";
+
+  const negativeBlock = negative.length ? `
+    <div class="bg-white rounded shadow-sm mb-4">
+      <div class="p-3 border-b flex items-center gap-2">
+        <span class="w-2.5 h-2.5 rounded-full bg-red-400 inline-block"></span>
+        <span class="font-semibold text-red-700">Negative Sentiment</span>
+        <span class="text-xs text-slate-400 ml-1">${negative.length} stocks</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          ${tableHead}
+          <tbody>${negative.map(sentimentRow).join("")}</tbody>
+        </table>
+      </div>
+    </div>` : "";
+
+  const neutralBlock = neutral.length ? `
+    <details class="bg-white rounded shadow-sm mb-4">
+      <summary class="cursor-pointer p-3 flex items-center gap-2 list-none">
+        <span class="w-2.5 h-2.5 rounded-full bg-slate-300 inline-block"></span>
+        <span class="font-semibold text-slate-600">Neutral Sentiment</span>
+        <span class="text-xs text-slate-400 ml-1">${neutral.length} stocks</span>
+        <span class="text-xs text-slate-400 ml-auto">click to expand</span>
+      </summary>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          ${tableHead}
+          <tbody>${neutral.map(sentimentRow).join("")}</tbody>
+        </table>
+      </div>
+    </details>` : "";
+
+  $("#content").innerHTML = summaryBar + positiveBlock + negativeBlock + neutralBlock;
+}
+
+// Sentiment score bar: -1 → +1 rendered as a two-sided bar
+function sentimentBar(score) {
+  if (score == null) return "—";
+  const pct    = Math.abs(score) * 100;
+  const isPos  = score >= 0;
+  const color  = score >  0.15 ? "bg-green-500"
+               : score < -0.15 ? "bg-red-400"
+               : "bg-slate-300";
+  const label  = score >  0.15 ? `+${score.toFixed(2)}`
+               : score < -0.15 ? score.toFixed(2)
+               : score.toFixed(2);
+  // Left half = negative, right half = positive, bar grows from center
+  return `
+    <div class="flex items-center gap-1.5">
+      <div class="w-24 h-2 bg-slate-100 rounded overflow-hidden flex">
+        <div class="flex-1 flex justify-end">
+          ${!isPos ? `<div class="${color} h-full rounded-l" style="width:${pct}%"></div>` : ""}
+        </div>
+        <div class="flex-1">
+          ${isPos ? `<div class="${color} h-full rounded-r" style="width:${pct}%"></div>` : ""}
+        </div>
+      </div>
+      <span class="text-xs tabular-nums font-semibold ${score > 0.15 ? 'text-green-700' : score < -0.15 ? 'text-red-600' : 'text-slate-400'}">${label}</span>
+    </div>`;
+}
+
 function render() {
-  if      (state.tab === "favorites") renderFavorites();
-  else if (state.tab === "all")       renderAll();
-  else if (state.tab === "value")     renderValue();
-  else if (state.tab === "alerts")    renderAlerts();
-  else                                 renderSectors();
+  if      (state.tab === "favorites")  renderFavorites();
+  else if (state.tab === "all")        renderAll();
+  else if (state.tab === "value")      renderValue();
+  else if (state.tab === "alerts")     renderAlerts();
+  else if (state.tab === "sentiment")  renderSentiment();
+  else                                  renderSectors();
 }
 
 function bindSummaryEvents() {
