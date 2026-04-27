@@ -233,17 +233,22 @@ async function fetchQuotes(symbols) {
   return out;
 }
 
-async function fetchFundamentals(symbols) {
+async function fetchFundamentals(symbols, { wantFmp = false } = {}) {
   if (!symbols.length) return;
-  // Only fetch symbols whose cache is stale
   const stale = symbols.filter(s => {
     const t = state.fundFetchedAt[s];
-    return !t || Date.now() - t > FUND_TTL_MS;
+    if (!t || Date.now() - t > FUND_TTL_MS) return true;
+    // Re-fetch if FMP was missing last time AND caller now wants FMP data
+    if (wantFmp && state.fundamentals[s] && !state.fundamentals[s].fmpLoaded) return true;
+    return false;
   });
   if (!stale.length) return;
 
+  // Only attach ?fmp=1 when explicitly requested (favorites / detail modal)
+  // This keeps bulk loads (all 500 S&P stocks) free of FMP calls
+  const fmpFlag = wantFmp ? "&fmp=1" : "";
   const urls = chunks(stale, 100).map(c =>
-    `/api/fundamentals?symbols=${c.join(",")}`);
+    `/api/fundamentals?symbols=${c.join(",")}${fmpFlag}`);
   const responses = await Promise.all(urls.map(u => fetch(u).then(async r => {
     if (!r.ok) throw new Error(`fundamentals ${r.status}`);
     return r.json();
@@ -287,9 +292,11 @@ async function refresh() {
   const syms = visibleSymbols();
   setStatus("Loading…");
   try {
+    // wantFmp only for favorites — bulk S&P load skips FMP to protect quota
+    const isFavoritesView = state.tab === "favorites";
     const [newQuotes] = await Promise.all([
       fetchQuotes(syms),
-      fetchFundamentals(syms),
+      fetchFundamentals(syms, { wantFmp: isFavoritesView }),
       fetchNews(syms),
     ]);
     state.quotes = { ...state.quotes, ...newQuotes };
@@ -820,10 +827,11 @@ async function openDetail(symbol) {
 
   $("#modal").classList.remove("hidden");
 
-  // Fetch chart bars + fresh news in parallel
+  // Fetch chart bars, fresh news, and FMP fundamentals (1 call) in parallel
   const [barsResp, newsResp] = await Promise.all([
     fetch(`/api/bars?symbol=${symbol}&duration=${state.duration}`).then(r => r.json()),
     fetch(`/api/news?symbols=${symbol}&limit=10`).then(r => r.ok ? r.json() : null),
+    fetchFundamentals([symbol], { wantFmp: true }),
   ]);
 
   // Chart
