@@ -367,47 +367,88 @@ function renderAlertBadge() {
   }
 }
 
+// ─── TOOLTIPS ─────────────────────────────────────────────────────────────────
+// Each tooltip explains the metric in plain English for beginners.
+const TIPS = {
+  price:     "The current trading price of one share of this stock.",
+  change:    "How much the price has moved (%) over the selected time period. Green = up, red = down.",
+  score:     "Our overall 'how undervalued is this stock?' score from 0–100. Higher = more potentially undervalued. It combines fair value, price drop from its high, RSI, and news sentiment.",
+  zone:      "Strong Buy = multiple signals say the stock looks cheap. Watch = one or two signals. Overvalued = price looks high relative to our model.",
+  rsi:       "RSI (Relative Strength Index) measures momentum on a 0–100 scale. Below 40 = possibly oversold (a buying opportunity). Above 70 = possibly overbought. Around 50 = neutral.",
+  ma200:     "The average closing price over the last 200 trading days (~10 months). If today's price is below this line, the stock is in a long-term downtrend — which can signal a discount.",
+  ma50:      "The average closing price over the last 50 trading days (~2.5 months). Compared with MA200 to spot medium-term trends.",
+  drawdown:  "How far the price has fallen from its 52-week (1 year) high. A -20% drawdown means the stock is 20% cheaper than its recent peak.",
+  fairValue: "Our estimated 'true worth' per share using a DCF (Discounted Cash Flow) model. If the fair value is higher than the current price, the stock may be undervalued. This is a model estimate — not a guarantee.",
+  mos:       "Margin of Safety = how much cheaper the stock is vs our fair value estimate. A 25% margin means the stock trades 25% below fair value — a buffer in case our estimate is off.",
+  pe:        "Price-to-Earnings ratio. Tells you how much investors pay for each $1 of profit. A PE of 15 means the stock costs 15× its annual earnings. Lower PE can mean better value.",
+  pe5yAvg:   "The average PE ratio over the last 5 years. Comparing today's PE to this average shows whether the stock is cheap or expensive relative to its own history.",
+  fcfYield:  "Free Cash Flow Yield = how much free cash the company generates per dollar of share price. Higher is generally better (more cash returned to shareholders).",
+  eps:       "Earnings Per Share — the company's profit divided by the number of shares. Growing EPS over time is a sign of a healthy business.",
+  sentiment: "Based on the tone of recent news articles. Positive news can support price momentum; negative news may signal upcoming headwinds.",
+  high52w:   "The highest price the stock reached in the last 52 weeks (1 year). Useful to see how far it has fallen from its recent peak.",
+  low52w:    "The lowest price in the last 52 weeks. The current price relative to this shows where we are in the stock's recent range.",
+};
+
+function tip(key) {
+  const text = TIPS[key] || "";
+  if (!text) return "";
+  return `<span class="tooltip-wrap">
+    <span class="tooltip-icon">?</span>
+    <span class="tooltip-box">${text}</span>
+  </span>`;
+}
+
+function thTip(label, key, align = "") {
+  return `<th class="py-2 px-3 ${align}">
+    <span class="tooltip-wrap" style="justify-content:${align === 'text-right' ? 'flex-end' : 'flex-start'}">
+      ${label}
+      ${key ? `<span class="tooltip-icon">?</span><span class="tooltip-box">${TIPS[key]||''}</span>` : ""}
+    </span>
+  </th>`;
+}
+
 // ─── RENDER HELPERS ───────────────────────────────────────────────────────────
 const chip = pct => {
-  if (pct == null || isNaN(pct)) return `<span class="text-slate-400">—</span>`;
-  const cls  = pct > 0 ? "bg-green-100 text-green-800"
-             : pct < 0 ? "bg-red-100 text-red-800"
-             : "bg-slate-100 text-slate-700";
+  if (pct == null || isNaN(pct)) return `<span style="color:var(--taupe)">—</span>`;
+  const bg   = pct > 0 ? "rgba(122,155,132,0.18)" : pct < 0 ? "rgba(194,121,65,0.15)" : "rgba(168,136,133,0.12)";
+  const col  = pct > 0 ? "var(--sage)"            : pct < 0 ? "var(--terracotta)"     : "var(--taupe)";
   const sign = pct > 0 ? "+" : "";
-  return `<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold ${cls}">${sign}${pct.toFixed(2)}%</span>`;
+  return `<span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:0.75rem;font-weight:600;background:${bg};color:${col}">${sign}${pct.toFixed(2)}%</span>`;
 };
 
 const sentimentChip = score => {
-  if (score == null) return `<span class="text-slate-300 text-xs">—</span>`;
-  if (score >  0.15) return `<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-800">▲ Positive</span>`;
-  if (score < -0.15) return `<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-800">▼ Negative</span>`;
-  return `<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-600">● Neutral</span>`;
+  if (score == null) return `<span style="color:var(--taupe);font-size:0.75rem">—</span>`;
+  if (score >  0.15) return `<span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:0.75rem;font-weight:600;background:rgba(122,155,132,0.18);color:var(--sage)">▲ Positive</span>`;
+  if (score < -0.15) return `<span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:0.75rem;font-weight:600;background:rgba(194,121,65,0.15);color:var(--terracotta)">▼ Negative</span>`;
+  return `<span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:0.75rem;font-weight:600;background:rgba(168,136,133,0.12);color:var(--taupe)">● Neutral</span>`;
 };
 
 const zoneChip = zone => {
   if (!zone) return "";
-  const cls = zone === "Strong Buy" ? "bg-green-600 text-white"
-            : zone === "Watch"      ? "bg-yellow-400 text-slate-900"
-            :                         "bg-red-100 text-red-700";
-  return `<span class="inline-block px-2 py-0.5 rounded text-xs font-semibold ${cls}">${zone}</span>`;
+  const [bg, col] = zone === "Strong Buy"
+    ? ["var(--sage)",       "white"]
+    : zone === "Watch"
+    ? ["var(--gold-light)", "var(--navy)"]
+    : ["rgba(194,121,65,0.12)", "var(--terracotta)"];
+  return `<span style="display:inline-block;padding:2px 9px;border-radius:20px;font-size:0.75rem;font-weight:600;background:${bg};color:${col}">${zone}</span>`;
 };
 
 const scoreBar = score => {
-  if (score == null) return "—";
-  const color = score >= 70 ? "bg-green-500"
-              : score >= 45 ? "bg-yellow-400"
-              : "bg-red-400";
-  return `<div class="flex items-center gap-1">
-    <div class="w-16 h-2 bg-slate-200 rounded overflow-hidden">
-      <div class="${color} h-full rounded" style="width:${score}%"></div>
+  if (score == null) return `<span style="color:var(--taupe)">—</span>`;
+  const col = score >= 70 ? "var(--sage)"
+            : score >= 45 ? "var(--gold)"
+            :               "var(--terracotta)";
+  return `<div style="display:flex;align-items:center;gap:6px">
+    <div style="width:56px;height:6px;background:var(--gold-light);border-radius:3px;overflow:hidden">
+      <div class="score-fill" style="width:${score}%;height:100%;background:${col};border-radius:3px"></div>
     </div>
-    <span class="text-xs tabular-nums font-semibold">${score}</span>
+    <span style="font-size:0.75rem;font-weight:700;font-variant-numeric:tabular-nums;color:${col}">${score}</span>
   </div>`;
 };
 
 const starBtn = sym => {
   const on = state.favorites.has(sym);
-  return `<button data-fav="${sym}" class="text-lg leading-none ${on ? "text-yellow-500" : "text-slate-300 hover:text-yellow-400"}">★</button>`;
+  return `<button data-fav="${sym}" style="font-size:1.1rem;line-height:1;color:${on ? "var(--gold)" : "var(--border)"};transition:color 0.15s" onmouseenter="if(!${on})this.style.color='var(--gold)'" onmouseleave="if(!${on})this.style.color='var(--border)'">★</button>`;
 };
 
 function metricFor(sym) {
@@ -449,40 +490,41 @@ function renderSummaryCards() {
   const todayAlerts = state.alerts.filter(a => Date.now() - a.ts < 86_400_000).length;
 
   const topRows = top5.map(s => `
-    <tr class="border-b last:border-0 hover:bg-green-50 cursor-pointer" data-symbol="${s.symbol}">
-      <td class="py-1.5 px-2 font-mono font-bold text-sm">${s.symbol}</td>
-      <td class="py-1.5 px-2 text-xs text-slate-500 truncate max-w-[120px]">${s.name}</td>
-      <td class="py-1.5 px-2 text-right font-mono text-sm">$${fmt(s.price)}</td>
-      <td class="py-1.5 px-2">${scoreBar(s.score)}</td>
-      <td class="py-1.5 px-2">${zoneChip(s.zone)}</td>
+    <tr class="cursor-pointer" style="border-bottom:1px solid var(--border)" data-symbol="${s.symbol}"
+        onmouseenter="this.style.background='#faf8f3'" onmouseleave="this.style.background=''">
+      <td class="py-2 px-3" style="font-family:monospace;font-weight:700;color:var(--navy)">${s.symbol}</td>
+      <td class="py-2 px-3 truncate max-w-[140px]" style="font-size:0.8rem;color:var(--taupe)">${s.name}</td>
+      <td class="py-2 px-3 text-right" style="font-family:monospace;font-size:0.875rem">$${fmt(s.price)}</td>
+      <td class="py-2 px-3">${scoreBar(s.score)}</td>
+      <td class="py-2 px-3">${zoneChip(s.zone)}</td>
     </tr>`).join("");
 
   return `
-  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-    <div class="bg-white rounded shadow-sm p-4">
-      <p class="text-xs text-slate-500 uppercase tracking-wide mb-1">Strong Buy Zones</p>
-      <p class="text-3xl font-bold text-green-600">${strongBuys}</p>
-      <p class="text-xs text-slate-400 mt-1">${watches} in Watch Zone</p>
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+    <div class="med-card med-card-sage p-4">
+      <p class="text-xs uppercase tracking-widest mb-1" style="color:var(--taupe)">Strong Buy Zones ${tip("zone")}</p>
+      <p class="text-3xl font-bold" style="font-family:Georgia,serif;color:var(--sage)">${strongBuys}</p>
+      <p class="text-xs mt-1" style="color:var(--taupe)">${watches} in Watch Zone</p>
     </div>
-    <div class="bg-white rounded shadow-sm p-4">
-      <p class="text-xs text-slate-500 uppercase tracking-wide mb-1">Stocks Analyzed</p>
-      <p class="text-3xl font-bold">${scored.length}</p>
-      <p class="text-xs text-slate-400 mt-1">w/ fundamentals loaded</p>
+    <div class="med-card med-card-gold p-4">
+      <p class="text-xs uppercase tracking-widest mb-1" style="color:var(--taupe)">Stocks Scored ${tip("score")}</p>
+      <p class="text-3xl font-bold" style="font-family:Georgia,serif;color:var(--navy)">${scored.length}</p>
+      <p class="text-xs mt-1" style="color:var(--taupe)">with fundamentals loaded</p>
     </div>
-    <div class="bg-white rounded shadow-sm p-4 cursor-pointer hover:bg-slate-50" id="alerts-card">
-      <p class="text-xs text-slate-500 uppercase tracking-wide mb-1">Today's Alerts</p>
-      <p class="text-3xl font-bold text-amber-600">${todayAlerts}</p>
-      <p class="text-xs text-slate-400 mt-1">click to view</p>
+    <div class="med-card med-card-terra p-4 cursor-pointer" id="alerts-card" style="transition:box-shadow 0.15s" onmouseenter="this.style.boxShadow='0 4px 12px rgba(45,62,79,0.1)'" onmouseleave="this.style.boxShadow=''">
+      <p class="text-xs uppercase tracking-widest mb-1" style="color:var(--taupe)">Today's Alerts</p>
+      <p class="text-3xl font-bold" style="font-family:Georgia,serif;color:var(--terracotta)">${todayAlerts}</p>
+      <p class="text-xs mt-1" style="color:var(--taupe)">tap to view →</p>
     </div>
   </div>
-  <div class="bg-white rounded shadow-sm mb-4">
-    <div class="p-3 border-b flex items-center gap-2">
-      <span class="font-semibold text-sm">🏆 Top 5 Undervalued Opportunities</span>
-      <span class="text-xs text-slate-400">(by undervaluation score)</span>
+  <div class="med-card med-card-gold mb-5">
+    <div class="px-4 py-3 flex items-center gap-2" style="border-bottom:1px solid var(--border)">
+      <span class="font-semibold" style="font-family:Georgia,serif;color:var(--navy)">🏆 Top 5 Undervalued Opportunities</span>
+      <span class="text-xs ml-1" style="color:var(--taupe)">(ranked by undervaluation score)</span>
     </div>
     <div class="overflow-x-auto">
-      <table class="w-full text-sm">
-        <tbody>${topRows || '<tr><td colspan="5" class="p-4 text-slate-400 text-sm">Loading fundamentals…</td></tr>'}</tbody>
+      <table class="w-full">
+        <tbody>${topRows || `<tr><td colspan="5" class="p-4 text-sm" style="color:var(--taupe)">Loading scores… prices load first, then fundamentals.</td></tr>`}</tbody>
       </table>
     </div>
   </div>`;
@@ -493,65 +535,63 @@ function rowHtml(s, showValue = false) {
   const m = metricFor(s.symbol);
   if (!showValue) {
     return `
-    <tr class="border-b hover:bg-slate-50 cursor-pointer" data-symbol="${s.symbol}">
-      <td class="py-2 px-2">${starBtn(s.symbol)}</td>
-      <td class="py-2 px-2 font-mono font-semibold">${s.symbol}</td>
-      <td class="py-2 px-2 text-sm text-slate-600 truncate max-w-xs">${s.name}</td>
-      <td class="py-2 px-2 text-right font-mono">$${fmt(m.price)}</td>
-      <td class="py-2 px-2 text-right">${chip(m.changePct)}</td>
-      <td class="py-2 px-2 text-xs text-slate-500">${s.industry}</td>
+    <tr class="med-table-row" data-symbol="${s.symbol}"
+        onmouseenter="this.style.background='#faf8f3'" onmouseleave="this.style.background=''"
+        style="border-bottom:1px solid #f0ebe0;cursor:pointer">
+      <td style="padding:9px 12px">${starBtn(s.symbol)}</td>
+      <td style="padding:9px 12px;font-family:monospace;font-weight:700;color:var(--navy)">${s.symbol}</td>
+      <td style="padding:9px 12px;font-size:0.82rem;color:var(--taupe);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.name}</td>
+      <td style="padding:9px 12px;text-align:right;font-family:monospace;font-size:0.875rem">$${fmt(m.price)}</td>
+      <td style="padding:9px 12px;text-align:right">${chip(m.changePct)}</td>
+      <td style="padding:9px 12px;font-size:0.8rem;color:var(--taupe)">${s.industry}</td>
     </tr>`;
   }
 
-  // Value-enhanced row
-  const rsiCls = m.rsi == null ? "" : m.rsi < 30 ? "text-green-700 font-bold"
-               : m.rsi < 40 ? "text-green-600" : m.rsi > 70 ? "text-red-600" : "";
-  const maVsMa200Cls = m.price != null && m.ma200 != null
-    ? (m.price < m.ma200 ? "text-green-600" : "text-red-500") : "";
+  const rsiColor = m.rsi == null ? "var(--navy)"
+    : m.rsi < 30 ? "var(--sage)" : m.rsi < 40 ? "var(--sage)"
+    : m.rsi > 70 ? "var(--terracotta)" : "var(--navy)";
+  const ma200Color = m.price != null && m.ma200 != null
+    ? (m.price < m.ma200 ? "var(--sage)" : "var(--terracotta)") : "var(--navy)";
 
   return `
-    <tr class="border-b hover:bg-slate-50 cursor-pointer" data-symbol="${s.symbol}">
-      <td class="py-2 px-2">${starBtn(s.symbol)}</td>
-      <td class="py-2 px-2 font-mono font-semibold">${s.symbol}</td>
-      <td class="py-2 px-2 text-sm text-slate-600 truncate max-w-[140px]">${s.name}</td>
-      <td class="py-2 px-2 text-right font-mono text-sm">$${fmt(m.price)}</td>
-      <td class="py-2 px-2 text-right">${chip(m.changePct)}</td>
-      <td class="py-2 px-2 text-center">${scoreBar(m.score)}</td>
-      <td class="py-2 px-2 text-center">${zoneChip(m.zone)}</td>
-      <td class="py-2 px-2 text-right font-mono text-sm ${rsiCls}">${m.rsi ?? "—"}</td>
-      <td class="py-2 px-2 text-right font-mono text-xs ${maVsMa200Cls}">$${fmt(m.ma200)}</td>
-      <td class="py-2 px-2 text-right font-mono text-sm">${m.drawdown != null ? m.drawdown.toFixed(1)+"%" : "—"}</td>
-      <td class="py-2 px-2 text-right font-mono text-sm">${m.mos != null ? m.mos.toFixed(1)+"%" : "—"}</td>
-      <td class="py-2 px-2 text-right font-mono text-sm">$${fmt(m.fairValue)}</td>
-      <td class="py-2 px-2 text-center">${sentimentChip(m.sentimentScore)}</td>
+    <tr data-symbol="${s.symbol}"
+        onmouseenter="this.style.background='#faf8f3'" onmouseleave="this.style.background=''"
+        style="border-bottom:1px solid #f0ebe0;cursor:pointer">
+      <td style="padding:9px 12px">${starBtn(s.symbol)}</td>
+      <td style="padding:9px 12px;font-family:monospace;font-weight:700;color:var(--navy)">${s.symbol}</td>
+      <td style="padding:9px 12px;font-size:0.82rem;color:var(--taupe);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.name}</td>
+      <td style="padding:9px 12px;text-align:right;font-family:monospace;font-size:0.875rem">$${fmt(m.price)}</td>
+      <td style="padding:9px 12px;text-align:right">${chip(m.changePct)}</td>
+      <td style="padding:9px 12px">${scoreBar(m.score)}</td>
+      <td style="padding:9px 12px">${zoneChip(m.zone)}</td>
+      <td style="padding:9px 12px;text-align:right;font-family:monospace;font-size:0.875rem;font-weight:600;color:${rsiColor}">${m.rsi ?? "—"}</td>
+      <td style="padding:9px 12px;text-align:right;font-family:monospace;font-size:0.8rem;color:${ma200Color}">$${fmt(m.ma200)}</td>
+      <td style="padding:9px 12px;text-align:right;font-family:monospace;font-size:0.875rem">${m.drawdown != null ? m.drawdown.toFixed(1)+"%" : "—"}</td>
+      <td style="padding:9px 12px;text-align:right;font-family:monospace;font-size:0.875rem">${m.mos != null ? m.mos.toFixed(1)+"%" : "—"}</td>
+      <td style="padding:9px 12px;text-align:right;font-family:monospace;font-size:0.875rem">$${fmt(m.fairValue)}</td>
+      <td style="padding:9px 12px">${sentimentChip(m.sentimentScore)}</td>
     </tr>`;
 }
 
 function tableHtml(stocks, showValue = false) {
   const filtered = filterBySearch(stocks);
-  if (!filtered.length) return `<p class="text-slate-500 text-sm p-4">No stocks.</p>`;
+  if (!filtered.length) return `<p style="padding:16px;font-size:0.875rem;color:var(--taupe)">No stocks match your search.</p>`;
 
-  const baseHeaders = `
-    <th class="py-2 px-2"></th>
-    <th class="py-2 px-2">Ticker</th>
-    <th class="py-2 px-2">Name</th>
-    <th class="py-2 px-2 text-right">Price</th>
-    <th class="py-2 px-2 text-right">Change</th>`;
-  const valueHeaders = showValue ? `
-    <th class="py-2 px-2 text-center">Score</th>
-    <th class="py-2 px-2 text-center">Zone</th>
-    <th class="py-2 px-2 text-right">RSI</th>
-    <th class="py-2 px-2 text-right">MA200</th>
-    <th class="py-2 px-2 text-right">Drawdown</th>
-    <th class="py-2 px-2 text-right">MoS%</th>
-    <th class="py-2 px-2 text-right">Fair Value</th>
-    <th class="py-2 px-2 text-center">Sentiment</th>` : `<th class="py-2 px-2">Industry</th>`;
+  const th = (label, key, align = "") =>
+    `<th style="padding:10px 12px;background:#faf8f4;font-size:0.7rem;letter-spacing:0.06em;text-transform:uppercase;color:var(--taupe);border-bottom:1px solid var(--border);white-space:nowrap;${align ? 'text-align:right' : ''}">
+      <span class="tooltip-wrap" style="${align ? 'justify-content:flex-end' : ''}">
+        ${label}${key ? `<span class="tooltip-icon">?</span><span class="tooltip-box">${TIPS[key]||''}</span>` : ""}
+      </span>
+    </th>`;
+
+  const baseHead = `${th("")}${th("Ticker")}${th("Name")}${th("Price","price","right")}${th("Change","change","right")}`;
+  const valueHead = showValue
+    ? `${th("Score","score")}${th("Zone","zone")}${th("RSI","rsi","right")}${th("MA 200","ma200","right")}${th("Drawdown","drawdown","right")}${th("Margin of Safety","mos","right")}${th("Fair Value","fairValue","right")}${th("Sentiment","sentiment")}`
+    : th("Industry");
 
   return `
-    <table class="w-full text-sm">
-      <thead class="text-left text-xs uppercase text-slate-500 border-b">
-        <tr>${baseHeaders}${valueHeaders}</tr>
-      </thead>
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr>${baseHead}${valueHead}</tr></thead>
       <tbody>${filtered.map(s => rowHtml(s, showValue)).join("")}</tbody>
     </table>`;
 }
@@ -578,13 +618,14 @@ function renderSectors() {
     const avg     = sectorAggregate(stocks);
     const winners = stocks.filter(s => (state.quotes[s.symbol]?.changePct ?? 0) > 0).length;
     return `
-      <details class="bg-white rounded shadow-sm">
-        <summary class="cursor-pointer p-3 flex items-center gap-3 list-none">
-          <span class="font-semibold flex-1">${sec}</span>
-          <span class="text-xs text-slate-500">${stocks.length} stocks · ${winners} up</span>
+      <details class="med-card mb-2">
+        <summary class="cursor-pointer px-4 py-3 flex items-center gap-3" style="border-radius:10px">
+          <span class="font-semibold flex-1" style="font-family:Georgia,serif;color:var(--navy)">${sec}</span>
+          <span class="text-xs" style="color:var(--taupe)">${stocks.length} stocks · ${winners} up</span>
           ${chip(avg)}
+          <span style="color:var(--taupe);font-size:0.8rem">▾</span>
         </summary>
-        <div class="overflow-x-auto">${tableHtml(stocks)}</div>
+        <div class="overflow-x-auto" style="border-top:1px solid var(--border)">${tableHtml(stocks)}</div>
       </details>`;
   }).join("");
   $("#content").innerHTML = `${summary}<div class="space-y-2">${cards}</div>`;
@@ -594,65 +635,43 @@ function renderSectors() {
 function renderFavorites() {
   const stocks = state.universe.filter(s => state.favorites.has(s.symbol));
   if (!stocks.length) {
-    $("#content").innerHTML = `<p class="text-slate-500 p-8 text-center">No favorites yet. Click ★ next to any stock to add.</p>`;
+    $("#content").innerHTML = `<div class="med-card p-10 text-center" style="color:var(--taupe)">
+      <p class="text-lg mb-2">No watchlist stocks yet.</p>
+      <p class="text-sm">Click ★ next to any stock to add it here.</p>
+    </div>`;
     return;
   }
   const groups = stocks.reduce((acc, s) => { (acc[s.sector] ||= []).push(s); return acc; }, {});
   $("#content").innerHTML = Object.entries(groups).map(([sec, list]) => `
-    <section class="bg-white rounded shadow-sm mb-3">
-      <div class="p-3 flex items-center gap-3 border-b">
-        <span class="font-semibold flex-1">${sec}</span>
-        ${chip(sectorAggregate(list))}
+    <section class="med-card mb-3">
+      <div class="px-4 py-3 flex items-center gap-3" style="border-bottom:1px solid var(--border)">
+        <span class="font-semibold" style="font-family:Georgia,serif;color:var(--navy)">${sec}</span>
+        <span class="ml-auto">${chip(sectorAggregate(list))}</span>
       </div>
       <div class="overflow-x-auto">${tableHtml(list, true)}</div>
     </section>`).join("");
 }
 
 function renderAll() {
-  $("#content").innerHTML = `<div class="bg-white rounded shadow-sm overflow-x-auto">${tableHtml(state.universe)}</div>`;
+  $("#content").innerHTML = `<div class="med-card overflow-x-auto">${tableHtml(state.universe)}</div>`;
 }
 
 function renderValue() {
-  // Sort by score desc by default
-  const scored = [...state.universe].map(s => {
-    const m = metricFor(s.symbol);
-    return { ...s, ...m };
-  });
+  const scored = [...state.universe].map(s => ({ ...s, ...metricFor(s.symbol) }));
   scored.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
-
-  const filtered = filterBySearch(scored).slice(0, 200); // cap for perf
+  const filtered = filterBySearch(scored).slice(0, 200);
   if (!filtered.length) {
-    $("#content").innerHTML = `<p class="text-slate-500 p-8 text-center">No data yet. Fundamentals load in the background.</p>`;
+    $("#content").innerHTML = `<div class="med-card p-8 text-center" style="color:var(--taupe)">No data yet. Fundamentals load in the background — wait a moment then refresh.</div>`;
     return;
   }
-
   const rows = filtered.map(s => rowHtml(s, true)).join("");
   $("#content").innerHTML = `
-    <div class="bg-white rounded shadow-sm overflow-x-auto">
-      <div class="p-3 border-b text-xs text-slate-500">
-        Top stocks by undervaluation score. Fundamentals refresh hourly. DCF uses configurable assumptions.
-        <button id="open-settings" class="ml-2 underline text-blue-600">Edit assumptions →</button>
+    <div class="med-card med-card-gold overflow-x-auto">
+      <div class="px-4 py-3 flex items-center gap-3" style="border-bottom:1px solid var(--border)">
+        <span class="text-sm" style="color:var(--taupe)">Ranked by undervaluation score. Hover column headers for explanations. Fundamentals refresh hourly.</span>
+        <button id="open-settings" class="btn-secondary ml-auto" style="white-space:nowrap">⚙ Edit Assumptions</button>
       </div>
-      <table class="w-full text-sm">
-        <thead class="text-left text-xs uppercase text-slate-500 border-b">
-          <tr>
-            <th class="py-2 px-2"></th>
-            <th class="py-2 px-2">Ticker</th>
-            <th class="py-2 px-2">Name</th>
-            <th class="py-2 px-2 text-right">Price</th>
-            <th class="py-2 px-2 text-right">Change</th>
-            <th class="py-2 px-2 text-center">Score</th>
-            <th class="py-2 px-2 text-center">Zone</th>
-            <th class="py-2 px-2 text-right">RSI</th>
-            <th class="py-2 px-2 text-right">MA200</th>
-            <th class="py-2 px-2 text-right">Drawdown</th>
-            <th class="py-2 px-2 text-right">MoS%</th>
-            <th class="py-2 px-2 text-right">Fair Value</th>
-            <th class="py-2 px-2 text-center">Sentiment</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
+      ${tableHtml(filtered, true)}
     </div>`;
   document.getElementById("open-settings")?.addEventListener("click", openSettings);
 }
@@ -660,31 +679,34 @@ function renderValue() {
 function renderAlerts() {
   const items = state.alerts.slice(0, 100);
   if (!items.length) {
-    $("#content").innerHTML = `<p class="text-slate-500 p-8 text-center">No alerts yet. Alerts appear when stocks hit your configured thresholds.</p>`;
+    $("#content").innerHTML = `<div class="med-card p-10 text-center" style="color:var(--taupe)">
+      <p class="text-lg mb-2">No alerts yet.</p>
+      <p class="text-sm">Alerts fire automatically when a stock's undervaluation score, buy zone, or price drop hits your configured thresholds. Edit thresholds in ⚙ Settings.</p>
+    </div>`;
     return;
   }
   const rows = items.map(a => `
-    <tr class="border-b hover:bg-slate-50 cursor-pointer" data-symbol="${a.sym}">
-      <td class="py-2 px-3 font-mono font-bold text-sm">${a.sym}</td>
-      <td class="py-2 px-3 text-sm">${a.msg}</td>
-      <td class="py-2 px-3 text-right font-mono text-sm">$${fmt(a.price)}</td>
-      <td class="py-2 px-3 text-xs text-slate-400">${new Date(a.ts).toLocaleString()}</td>
+    <tr data-symbol="${a.sym}" style="border-bottom:1px solid #f0ebe0;cursor:pointer"
+        onmouseenter="this.style.background='#faf8f3'" onmouseleave="this.style.background=''">
+      <td style="padding:10px 14px;font-family:monospace;font-weight:700;color:var(--navy)">${a.sym}</td>
+      <td style="padding:10px 14px;font-size:0.875rem;color:var(--terracotta)">${a.msg}</td>
+      <td style="padding:10px 14px;text-align:right;font-family:monospace;font-size:0.875rem">$${fmt(a.price)}</td>
+      <td style="padding:10px 14px;font-size:0.75rem;color:var(--taupe)">${new Date(a.ts).toLocaleString()}</td>
     </tr>`).join("");
   $("#content").innerHTML = `
-    <div class="bg-white rounded shadow-sm overflow-x-auto">
-      <div class="p-3 border-b flex items-center gap-3">
-        <span class="font-semibold">Alerts</span>
-        <button id="clear-alerts" class="ml-auto text-xs text-red-500 hover:underline">Clear all</button>
+    <div class="med-card med-card-terra overflow-x-auto">
+      <div class="px-4 py-3 flex items-center gap-3" style="border-bottom:1px solid var(--border)">
+        <span class="font-semibold" style="font-family:Georgia,serif;color:var(--navy)">🔔 Alerts</span>
+        <span class="text-xs ml-1" style="color:var(--taupe)">Click a row to view the stock</span>
+        <button id="clear-alerts" class="ml-auto btn-secondary text-xs" style="color:var(--terracotta);border-color:var(--terracotta)">Clear all</button>
       </div>
-      <table class="w-full text-sm">
-        <thead class="text-left text-xs uppercase text-slate-500 border-b">
-          <tr>
-            <th class="py-2 px-3">Symbol</th>
-            <th class="py-2 px-3">Trigger</th>
-            <th class="py-2 px-3 text-right">Price</th>
-            <th class="py-2 px-3">Time</th>
-          </tr>
-        </thead>
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr>
+          <th style="padding:10px 14px;background:#faf8f4;font-size:0.7rem;letter-spacing:0.06em;text-transform:uppercase;color:var(--taupe);border-bottom:1px solid var(--border)">Symbol</th>
+          <th style="padding:10px 14px;background:#faf8f4;font-size:0.7rem;letter-spacing:0.06em;text-transform:uppercase;color:var(--taupe);border-bottom:1px solid var(--border)">What Triggered It</th>
+          <th style="padding:10px 14px;background:#faf8f4;font-size:0.7rem;letter-spacing:0.06em;text-transform:uppercase;color:var(--taupe);border-bottom:1px solid var(--border);text-align:right">Price</th>
+          <th style="padding:10px 14px;background:#faf8f4;font-size:0.7rem;letter-spacing:0.06em;text-transform:uppercase;color:var(--taupe);border-bottom:1px solid var(--border)">When</th>
+        </tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
@@ -708,9 +730,9 @@ function renderSentiment() {
 
   if (!all.length) {
     $("#content").innerHTML = `
-      <div class="bg-white rounded shadow-sm p-8 text-center text-slate-500">
+      <div class="med-card p-10 text-center" style="color:var(--taupe)">
         <p class="text-lg mb-2">No sentiment data loaded yet.</p>
-        <p class="text-sm">Sentiment loads automatically with prices. Wait a moment and hit Refresh.</p>
+        <p class="text-sm">Sentiment loads automatically alongside prices. Wait a moment and hit ↻ Refresh.</p>
       </div>`;
     return;
   }
@@ -728,121 +750,104 @@ function renderSentiment() {
   const neuPct = 100 - pPct - nPct;
 
   const summaryBar = `
-    <div class="bg-white rounded shadow-sm p-4 mb-4">
-      <div class="flex items-center justify-between mb-2">
-        <span class="font-semibold text-sm">Market Sentiment Overview</span>
-        <span class="text-xs text-slate-400">${total} stocks with news · refreshes every 15 min</span>
+    <div class="med-card med-card-gold p-5 mb-5">
+      <div class="flex items-center justify-between mb-3">
+        <span class="font-semibold" style="font-family:Georgia,serif;color:var(--navy)">Market Sentiment Overview</span>
+        <span class="text-xs" style="color:var(--taupe)">${total} stocks with news · refreshes every 15 min</span>
       </div>
-      <div class="flex rounded overflow-hidden h-4 mb-3">
-        <div class="bg-green-500 h-full transition-all" style="width:${pPct}%" title="${positive.length} positive"></div>
-        <div class="bg-slate-200 h-full transition-all" style="width:${neuPct}%" title="${neutral.length} neutral"></div>
-        <div class="bg-red-400 h-full transition-all" style="width:${nPct}%" title="${negative.length} negative"></div>
+      <div style="display:flex;border-radius:6px;overflow:hidden;height:14px;margin-bottom:12px">
+        <div style="background:var(--sage);width:${pPct}%;transition:width 0.4s" title="${positive.length} positive"></div>
+        <div style="background:var(--border);width:${neuPct}%;transition:width 0.4s" title="${neutral.length} neutral"></div>
+        <div style="background:var(--terracotta);width:${nPct}%;transition:width 0.4s" title="${negative.length} negative"></div>
       </div>
-      <div class="flex gap-4 text-xs">
-        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-green-500 inline-block"></span> Positive ${positive.length} (${pPct}%)</span>
-        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-slate-300 inline-block"></span> Neutral ${neutral.length} (${neuPct}%)</span>
-        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-red-400 inline-block"></span> Negative ${negative.length} (${nPct}%)</span>
+      <div style="display:flex;gap:20px;font-size:0.78rem">
+        <span style="display:flex;align-items:center;gap:5px;color:var(--sage)"><span style="width:10px;height:10px;border-radius:50%;background:var(--sage);display:inline-block"></span> Positive ${positive.length} (${pPct}%)</span>
+        <span style="display:flex;align-items:center;gap:5px;color:var(--taupe)"><span style="width:10px;height:10px;border-radius:50%;background:var(--border);display:inline-block"></span> Neutral ${neutral.length} (${neuPct}%)</span>
+        <span style="display:flex;align-items:center;gap:5px;color:var(--terracotta)"><span style="width:10px;height:10px;border-radius:50%;background:var(--terracotta);display:inline-block"></span> Negative ${negative.length} (${nPct}%)</span>
       </div>
     </div>`;
+
+  const sentThead = `<thead><tr>
+    <th style="padding:10px 14px;background:#faf8f4;font-size:0.7rem;letter-spacing:0.06em;text-transform:uppercase;color:var(--taupe);border-bottom:1px solid var(--border)">Ticker</th>
+    <th style="padding:10px 14px;background:#faf8f4;font-size:0.7rem;letter-spacing:0.06em;text-transform:uppercase;color:var(--taupe);border-bottom:1px solid var(--border)">Name</th>
+    <th style="padding:10px 14px;background:#faf8f4;font-size:0.7rem;letter-spacing:0.06em;text-transform:uppercase;color:var(--taupe);border-bottom:1px solid var(--border);text-align:right">Price</th>
+    <th style="padding:10px 14px;background:#faf8f4;font-size:0.7rem;letter-spacing:0.06em;text-transform:uppercase;color:var(--taupe);border-bottom:1px solid var(--border);text-align:right">Change</th>
+    <th style="padding:10px 14px;background:#faf8f4;font-size:0.7rem;letter-spacing:0.06em;text-transform:uppercase;color:var(--taupe);border-bottom:1px solid var(--border)">Score</th>
+    <th style="padding:10px 14px;background:#faf8f4;font-size:0.7rem;letter-spacing:0.06em;text-transform:uppercase;color:var(--taupe);border-bottom:1px solid var(--border)">Latest Headline</th>
+  </tr></thead>`;
 
   const sentimentRow = s => {
     const bar = sentimentBar(s.sentimentScore);
     const latestHeadline = s.articles[0];
     return `
-      <tr class="border-b hover:bg-slate-50 cursor-pointer" data-symbol="${s.symbol}">
-        <td class="py-2 px-3 font-mono font-semibold text-sm">${s.symbol}</td>
-        <td class="py-2 px-3 text-xs text-slate-500 truncate max-w-[120px]">${s.name}</td>
-        <td class="py-2 px-3 text-right font-mono text-sm">$${fmt(s.price)}</td>
-        <td class="py-2 px-3 text-right">${chip(s.changePct)}</td>
-        <td class="py-2 px-3">${bar}</td>
-        <td class="py-2 px-3 text-xs text-slate-500 truncate max-w-[260px]">${latestHeadline ? `<span class="text-slate-700">${latestHeadline.headline}</span> <span class="text-slate-400">· ${timeAgo(latestHeadline.publishedAt)}</span>` : "—"}</td>
+      <tr data-symbol="${s.symbol}" style="border-bottom:1px solid #f0ebe0;cursor:pointer"
+          onmouseenter="this.style.background='#faf8f3'" onmouseleave="this.style.background=''">
+        <td style="padding:10px 14px;font-family:monospace;font-weight:700;color:var(--navy)">${s.symbol}</td>
+        <td style="padding:10px 14px;font-size:0.8rem;color:var(--taupe);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.name}</td>
+        <td style="padding:10px 14px;text-align:right;font-family:monospace;font-size:0.875rem">$${fmt(s.price)}</td>
+        <td style="padding:10px 14px;text-align:right">${chip(s.changePct)}</td>
+        <td style="padding:10px 14px">${bar}</td>
+        <td style="padding:10px 14px;font-size:0.8rem;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          ${latestHeadline
+            ? `<span style="color:var(--navy)">${latestHeadline.headline}</span> <span style="color:var(--taupe)">· ${timeAgo(latestHeadline.publishedAt)}</span>`
+            : `<span style="color:var(--taupe)">—</span>`}
+        </td>
       </tr>`;
   };
 
-  const tableHead = `
-    <thead class="text-left text-xs uppercase text-slate-500 border-b sticky top-0 bg-white">
-      <tr>
-        <th class="py-2 px-3">Ticker</th>
-        <th class="py-2 px-3">Name</th>
-        <th class="py-2 px-3 text-right">Price</th>
-        <th class="py-2 px-3 text-right">Change</th>
-        <th class="py-2 px-3">Sentiment</th>
-        <th class="py-2 px-3">Latest Headline</th>
-      </tr>
-    </thead>`;
-
-  const positiveBlock = positive.length ? `
-    <div class="bg-white rounded shadow-sm mb-4">
-      <div class="p-3 border-b flex items-center gap-2">
-        <span class="w-2.5 h-2.5 rounded-full bg-green-500 inline-block"></span>
-        <span class="font-semibold text-green-700">Positive Sentiment</span>
-        <span class="text-xs text-slate-400 ml-1">${positive.length} stocks</span>
+  const sentBlock = (list, label, dotColor, cardClass) => list.length ? `
+    <div class="med-card ${cardClass} mb-4">
+      <div class="px-4 py-3 flex items-center gap-2" style="border-bottom:1px solid var(--border)">
+        <span style="width:10px;height:10px;border-radius:50%;background:${dotColor};display:inline-block"></span>
+        <span class="font-semibold" style="font-family:Georgia,serif;color:var(--navy)">${label}</span>
+        <span class="text-xs ml-1" style="color:var(--taupe)">${list.length} stocks</span>
       </div>
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          ${tableHead}
-          <tbody>${positive.map(sentimentRow).join("")}</tbody>
-        </table>
-      </div>
-    </div>` : "";
-
-  const negativeBlock = negative.length ? `
-    <div class="bg-white rounded shadow-sm mb-4">
-      <div class="p-3 border-b flex items-center gap-2">
-        <span class="w-2.5 h-2.5 rounded-full bg-red-400 inline-block"></span>
-        <span class="font-semibold text-red-700">Negative Sentiment</span>
-        <span class="text-xs text-slate-400 ml-1">${negative.length} stocks</span>
-      </div>
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          ${tableHead}
-          <tbody>${negative.map(sentimentRow).join("")}</tbody>
-        </table>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse">${sentThead}<tbody>${list.map(sentimentRow).join("")}</tbody></table>
       </div>
     </div>` : "";
 
   const neutralBlock = neutral.length ? `
-    <details class="bg-white rounded shadow-sm mb-4">
-      <summary class="cursor-pointer p-3 flex items-center gap-2 list-none">
-        <span class="w-2.5 h-2.5 rounded-full bg-slate-300 inline-block"></span>
-        <span class="font-semibold text-slate-600">Neutral Sentiment</span>
-        <span class="text-xs text-slate-400 ml-1">${neutral.length} stocks</span>
-        <span class="text-xs text-slate-400 ml-auto">click to expand</span>
+    <details class="med-card mb-4">
+      <summary class="cursor-pointer px-4 py-3 flex items-center gap-2" style="border-radius:10px">
+        <span style="width:10px;height:10px;border-radius:50%;background:var(--border);display:inline-block"></span>
+        <span class="font-semibold" style="font-family:Georgia,serif;color:var(--navy)">Neutral</span>
+        <span class="text-xs ml-1" style="color:var(--taupe)">${neutral.length} stocks · no strong signal either way</span>
+        <span style="margin-left:auto;color:var(--taupe);font-size:0.8rem">▾ expand</span>
       </summary>
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          ${tableHead}
-          <tbody>${neutral.map(sentimentRow).join("")}</tbody>
-        </table>
+      <div style="overflow-x:auto;border-top:1px solid var(--border)">
+        <table style="width:100%;border-collapse:collapse">${sentThead}<tbody>${neutral.map(sentimentRow).join("")}</tbody></table>
       </div>
     </details>` : "";
 
-  $("#content").innerHTML = summaryBar + positiveBlock + negativeBlock + neutralBlock;
+  $("#content").innerHTML = summaryBar
+    + sentBlock(positive, "▲ Positive Sentiment", "var(--sage)", "med-card-sage")
+    + sentBlock(negative, "▼ Negative Sentiment", "var(--terracotta)", "med-card-terra")
+    + neutralBlock;
 }
 
 // Sentiment score bar: -1 → +1 rendered as a two-sided bar
 function sentimentBar(score) {
-  if (score == null) return "—";
-  const pct    = Math.abs(score) * 100;
-  const isPos  = score >= 0;
-  const color  = score >  0.15 ? "bg-green-500"
-               : score < -0.15 ? "bg-red-400"
-               : "bg-slate-300";
-  const label  = score >  0.15 ? `+${score.toFixed(2)}`
-               : score < -0.15 ? score.toFixed(2)
-               : score.toFixed(2);
+  if (score == null) return `<span style="color:var(--taupe)">—</span>`;
+  const pct   = Math.abs(score) * 100;
+  const isPos = score >= 0;
+  const color = score >  0.15 ? "var(--sage)"
+              : score < -0.15 ? "var(--terracotta)"
+              : "var(--taupe)";
+  const label = score >  0.15 ? `+${score.toFixed(2)}`
+              : score.toFixed(2);
   // Left half = negative, right half = positive, bar grows from center
   return `
-    <div class="flex items-center gap-1.5">
-      <div class="w-24 h-2 bg-slate-100 rounded overflow-hidden flex">
-        <div class="flex-1 flex justify-end">
-          ${!isPos ? `<div class="${color} h-full rounded-l" style="width:${pct}%"></div>` : ""}
+    <div style="display:flex;align-items:center;gap:6px">
+      <div style="width:80px;height:6px;background:var(--gold-light);border-radius:3px;overflow:hidden;display:flex">
+        <div style="flex:1;display:flex;justify-content:flex-end">
+          ${!isPos ? `<div style="width:${pct}%;height:100%;background:${color};border-radius:3px 0 0 3px"></div>` : ""}
         </div>
-        <div class="flex-1">
-          ${isPos ? `<div class="${color} h-full rounded-r" style="width:${pct}%"></div>` : ""}
+        <div style="flex:1">
+          ${isPos ? `<div style="width:${pct}%;height:100%;background:${color};border-radius:0 3px 3px 0"></div>` : ""}
         </div>
       </div>
-      <span class="text-xs tabular-nums font-semibold ${score > 0.15 ? 'text-green-700' : score < -0.15 ? 'text-red-600' : 'text-slate-400'}">${label}</span>
+      <span style="font-size:0.75rem;font-weight:700;font-variant-numeric:tabular-nums;color:${color}">${label}</span>
     </div>`;
 }
 
@@ -864,8 +869,7 @@ function bindSummaryEvents() {
 function switchTab(tab) {
   state.tab = tab;
   document.querySelectorAll(".tab-btn").forEach(b => {
-    b.classList.toggle("border-blue-600",  b.dataset.tab === tab);
-    b.classList.toggle("border-transparent", b.dataset.tab !== tab);
+    b.classList.toggle("active", b.dataset.tab === tab);
   });
   render();
 }
@@ -874,24 +878,25 @@ function switchTab(tab) {
 function openSettings() {
   const c = state.cfg;
   document.getElementById("settings-modal").innerHTML = `
-    <div class="bg-white rounded-lg max-w-md w-full p-6">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-lg font-bold">DCF & Alert Settings</h2>
-        <button id="settings-close" class="text-2xl px-2">&times;</button>
+    <div class="med-card" style="max-width:480px;width:100%;padding:28px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <h2 style="font-family:Georgia,serif;color:var(--navy);font-size:1.2rem">⚙ Assumptions & Alerts</h2>
+        <button id="settings-close" style="font-size:1.5rem;color:var(--taupe);line-height:1;padding:0 6px">&times;</button>
       </div>
-      <div class="space-y-3 text-sm">
-        ${cfgField("discountRate",        "Discount Rate (WACC)",          c.discountRate,        "0.01", "0.30", "0.01", "e.g. 0.10 = 10%")}
-        ${cfgField("revenueGrowth",       "Revenue Growth Rate",           c.revenueGrowth,       "0.01", "0.40", "0.01", "e.g. 0.08 = 8%")}
-        ${cfgField("terminalGrowth",      "Terminal Growth Rate",          c.terminalGrowth,      "0.00", "0.05", "0.01", "e.g. 0.03 = 3%")}
-        ${cfgField("projectionYears",     "Projection Years",              c.projectionYears,     "3",    "20",   "1",    "")}
-        ${cfgField("marginOfSafetyPct",   "Margin of Safety % (Strong Buy)", c.marginOfSafetyPct, "5",    "50",   "5",    "e.g. 25 = price ≥25% below fair value")}
-        ${cfgField("alertThresholdScore", "Alert: Underval. Score ≥",      c.alertThresholdScore, "50",   "100",  "5",    "")}
-        ${cfgField("alertDropPct",        "Alert: Price Drop % ≥",         c.alertDropPct,        "3",    "50",   "1",    "")}
-        ${cfgField("rsiOversold",         "RSI Oversold Threshold",        c.rsiOversold,         "20",   "50",   "1",    "")}
+      <p style="font-size:0.8rem;color:var(--taupe);margin-bottom:16px;line-height:1.5">These values drive the Fair Value and undervaluation score calculations. Safe defaults are pre-filled — only change if you have a reason to.</p>
+      <div style="display:flex;flex-direction:column;gap:12px;font-size:0.875rem">
+        ${cfgField("discountRate",        "Discount Rate (WACC)",            c.discountRate,        "0.01","0.30","0.01", "Your required annual return. 10% is a common starting point.")}
+        ${cfgField("revenueGrowth",       "Expected Revenue Growth Rate",    c.revenueGrowth,       "0.01","0.40","0.01", "How fast you expect the company to grow each year. 8% = moderate growth.")}
+        ${cfgField("terminalGrowth",      "Long-Term Growth Rate",           c.terminalGrowth,      "0.00","0.05","0.01", "Growth rate after the projection period ends. Usually 2–3% (similar to GDP).")}
+        ${cfgField("projectionYears",     "Years to Project",                c.projectionYears,     "3","20","1",          "How many years of future cash flows to model. 10 is standard.")}
+        ${cfgField("marginOfSafetyPct",   "Margin of Safety % for Strong Buy", c.marginOfSafetyPct, "5","50","5",         "How much cheaper than fair value before labelling 'Strong Buy'. 25% = a 25% discount.")}
+        ${cfgField("alertThresholdScore", "Alert when Score reaches ≥",      c.alertThresholdScore, "50","100","5",        "Get an alert when undervaluation score hits this number (0–100).")}
+        ${cfgField("alertDropPct",        "Alert when Price drops ≥ %",      c.alertDropPct,        "3","50","1",           "Get an alert when a stock drops this much in the current period.")}
+        ${cfgField("rsiOversold",         "RSI Oversold Level",              c.rsiOversold,         "20","50","1",          "RSI below this value is flagged as a potential buying opportunity.")}
       </div>
-      <div class="mt-4 flex gap-2">
-        <button id="settings-save" class="flex-1 bg-slate-800 text-white rounded py-2 text-sm">Save</button>
-        <button id="settings-reset" class="px-4 border rounded py-2 text-sm text-slate-600">Reset</button>
+      <div style="margin-top:20px;display:flex;gap:10px">
+        <button id="settings-save" class="btn-primary" style="flex:1;text-align:center;padding:9px">Save Changes</button>
+        <button id="settings-reset" class="btn-secondary" style="padding:9px 16px">Reset Defaults</button>
       </div>
     </div>`;
   document.getElementById("settings-modal").classList.remove("hidden");
@@ -920,11 +925,11 @@ function openSettings() {
 function cfgField(key, label, value, min, max, step, hint) {
   return `
     <label class="block">
-      <span class="text-slate-700">${label}</span>
-      ${hint ? `<span class="text-slate-400 text-xs ml-1">${hint}</span>` : ""}
+      <span style="color:var(--navy);font-size:0.85rem;font-weight:500">${label}</span>
+      ${hint ? `<span style="color:var(--taupe);font-size:0.75rem;margin-left:4px">${hint}</span>` : ""}
       <input id="cfg-${key}" type="number" min="${min}" max="${max}" step="${step}"
              value="${value}"
-             class="mt-1 block w-full border rounded px-2 py-1 text-sm bg-white" />
+             style="margin-top:4px;display:block;width:100%" />
     </label>`;
 }
 
@@ -953,13 +958,13 @@ async function openDetail(symbol) {
                   : "5% yield proxy";
   const hasFmpData = f?.fmpLoaded === true;
   const dataBadge = hasFmpData
-    ? `<span class="text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded text-xs">✓ FMP fundamentals loaded · DCF uses ${dcfSource}</span>`
-    : `<span class="text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded text-xs">⚠ FMP not connected — DCF uses ${dcfSource}</span>`;
+    ? `<span style="font-size:0.75rem;padding:2px 8px;border-radius:4px;background:rgba(122,155,132,0.15);color:var(--sage);border:1px solid rgba(122,155,132,0.3)">✓ FMP fundamentals loaded · DCF uses ${dcfSource}</span>`
+    : `<span style="font-size:0.75rem;padding:2px 8px;border-radius:4px;background:rgba(212,165,116,0.15);color:var(--terracotta);border:1px solid rgba(212,165,116,0.3)">⚠ FMP not connected — DCF uses ${dcfSource}</span>`;
 
   // Metrics grid
   document.getElementById("m-metrics").innerHTML = `
-    <div class="mb-2">${dataBadge}</div>
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 my-3 text-sm">
+    <div style="margin-bottom:10px">${dataBadge}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin:12px 0;font-size:0.875rem">
       ${metricCard("Score",            scoreBar(m.score))}
       ${metricCard("Zone",             zoneChip(m.zone))}
       ${metricCard("RSI-14",           m.rsi != null ? m.rsi : "—")}
@@ -996,16 +1001,16 @@ async function openDetail(symbol) {
       labels:   bars.map(b => b.t),
       datasets: [{
         data:            bars.map(b => b.c),
-        borderColor:     up ? "#16a34a" : "#dc2626",
-        backgroundColor: up ? "rgba(22,163,74,0.1)" : "rgba(220,38,38,0.1)",
+        borderColor:     up ? "#7A9B84" : "#C27941",
+        backgroundColor: up ? "rgba(122,155,132,0.12)" : "rgba(194,121,65,0.1)",
         fill: true, tension: 0.2, pointRadius: 0, borderWidth: 2,
       }],
     },
     options: {
       plugins: { legend: { display: false } },
       scales: {
-        x: { ticks: { maxTicksLimit: 6, callback: (_, i) => bars[i] ? new Date(bars[i].t).toLocaleDateString() : "" } },
-        y: { ticks: { callback: v => `$${v}` } },
+        x: { ticks: { maxTicksLimit: 6, color: "#A89885", font: { size: 11 }, callback: (_, i) => bars[i] ? new Date(bars[i].t).toLocaleDateString() : "" }, grid: { color: "#f0ebe0" } },
+        y: { ticks: { color: "#A89885", font: { size: 11 }, callback: v => `$${v}` }, grid: { color: "#f0ebe0" } },
       },
     },
   });
@@ -1015,22 +1020,25 @@ async function openDetail(symbol) {
   const newsFeed = document.getElementById("m-news");
   if (newsFeed) {
     if (!articles.length) {
-      newsFeed.innerHTML = `<p class="text-slate-400 text-sm py-3">No recent news found.</p>`;
+      newsFeed.innerHTML = `<p style="color:var(--taupe);font-size:0.85rem;padding:12px 0">No recent news found.</p>`;
     } else {
       newsFeed.innerHTML = articles.map(a => {
-        const sentCls = a.sentiment === "positive" ? "bg-green-100 text-green-800"
-                      : a.sentiment === "negative" ? "bg-red-100 text-red-800"
-                      : "bg-slate-100 text-slate-500";
+        const [sentBg, sentCol] = a.sentiment === "positive"
+          ? ["rgba(122,155,132,0.18)", "var(--sage)"]
+          : a.sentiment === "negative"
+          ? ["rgba(194,121,65,0.15)", "var(--terracotta)"]
+          : ["rgba(168,152,133,0.15)", "var(--taupe)"];
         const ago = timeAgo(a.publishedAt);
         return `
           <a href="${a.url}" target="_blank" rel="noopener noreferrer"
-             class="block border-b last:border-0 py-3 hover:bg-slate-50 group">
-            <div class="flex items-start gap-2">
-              <span class="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0 ${sentCls}">${a.sentiment}</span>
-              <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium text-slate-800 group-hover:text-blue-600 leading-snug">${a.headline}</p>
-                ${a.summary ? `<p class="text-xs text-slate-500 mt-0.5 line-clamp-2">${a.summary}</p>` : ""}
-                <p class="text-xs text-slate-400 mt-1">${a.source} · ${ago}</p>
+             style="display:block;border-bottom:1px solid var(--border);padding:12px 0;text-decoration:none"
+             onmouseover="this.style.background='#faf8f3'" onmouseout="this.style.background=''">
+            <div style="display:flex;align-items:flex-start;gap:8px">
+              <span style="flex-shrink:0;margin-top:2px;padding:2px 6px;border-radius:4px;font-size:0.65rem;font-weight:700;background:${sentBg};color:${sentCol};text-transform:uppercase">${a.sentiment}</span>
+              <div style="flex:1;min-width:0">
+                <p style="font-size:0.875rem;font-weight:500;color:var(--navy);line-height:1.4;margin:0 0 3px">${a.headline}</p>
+                ${a.summary ? `<p style="font-size:0.75rem;color:var(--taupe);margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${a.summary}</p>` : ""}
+                <p style="font-size:0.72rem;color:var(--taupe);margin:0">${a.source} · ${ago}</p>
               </div>
             </div>
           </a>`;
@@ -1050,9 +1058,9 @@ function timeAgo(isoStr) {
 
 function metricCard(label, value) {
   return `
-    <div class="bg-slate-50 rounded p-2">
-      <p class="text-xs text-slate-500 mb-1">${label}</p>
-      <div class="font-semibold">${value}</div>
+    <div style="background:#faf8f4;border-radius:8px;border:1px solid var(--border);padding:10px 12px">
+      <p style="font-size:0.7rem;color:var(--taupe);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.05em">${label}</p>
+      <div style="font-weight:600;color:var(--navy);font-size:0.9rem">${value}</div>
     </div>`;
 }
 

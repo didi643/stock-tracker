@@ -7,25 +7,200 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
-  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto; }
-  .pulse-ok { animation: pulse-bg 1s ease; }
-  @keyframes pulse-bg { 0% { background:#fef9c3 } 100% { background:transparent } }
-  /* Smooth score bar */
-  .score-bar { transition: width 0.4s ease; }
-  /* Sticky table headers */
-  thead th { position: sticky; top: 0; background: white; z-index: 1; }
+  /* ── Mediterranean palette ── */
+  :root {
+    --navy:        #2D3E4F;
+    --gold:        #D4A574;
+    --terracotta:  #C27941;
+    --rose:        #A87C7C;
+    --sage:        #7A9B84;
+    --cream:       #F5F1E8;
+    --border:      #D4C5B3;
+    --gold-light:  #E8D4B8;
+    --rose-light:  #D9B5B5;
+    --navy-light:  #4A5F75;
+    --taupe:       #A89885;
+    --text-sec:    #6B7280;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: 'Trebuchet MS', system-ui, sans-serif;
+    background: var(--cream);
+    color: var(--navy);
+  }
+
+  h1, h2, h3 { font-family: Georgia, serif; }
+
+  /* Tabs */
+  .tab-btn {
+    color: var(--taupe);
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+  }
+  .tab-btn:hover { color: var(--navy); }
+  .tab-btn.active {
+    color: var(--navy);
+    border-bottom-color: var(--gold);
+    font-weight: 600;
+  }
+
+  /* Cards */
+  .med-card {
+    background: white;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    box-shadow: 0 1px 4px rgba(45,62,79,0.06);
+  }
+  .med-card-gold  { border-left: 4px solid var(--gold); }
+  .med-card-terra { border-left: 4px solid var(--terracotta); }
+  .med-card-sage  { border-left: 4px solid var(--sage); }
+  .med-card-rose  { border-left: 4px solid var(--rose); }
+  .med-card-navy  { border-left: 4px solid var(--navy); }
+
+  /* Buttons */
+  .btn-primary {
+    background: var(--navy);
+    color: var(--cream);
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: background 0.15s;
+  }
+  .btn-primary:hover { background: var(--navy-light); }
+
+  .btn-secondary {
+    background: var(--cream);
+    color: var(--navy);
+    border: 1.5px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: border-color 0.15s;
+  }
+  .btn-secondary:hover { border-color: var(--gold); }
+
+  /* Table rows */
+  .med-table thead th {
+    background: #faf8f4;
+    color: var(--taupe);
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 10px 12px;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .med-table tbody tr {
+    border-bottom: 1px solid #f0ebe0;
+    transition: background 0.1s;
+    cursor: pointer;
+  }
+  .med-table tbody tr:hover { background: #faf8f3; }
+  .med-table tbody td { padding: 9px 12px; font-size: 0.875rem; }
+
+  /* Tooltip */
+  .tooltip-wrap { position: relative; display: inline-flex; align-items: center; gap: 3px; }
+  .tooltip-icon {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--gold-light);
+    color: var(--navy);
+    font-size: 9px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: default;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .tooltip-box {
+    visibility: hidden;
+    opacity: 0;
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--navy);
+    color: var(--cream);
+    font-size: 0.72rem;
+    line-height: 1.45;
+    padding: 8px 10px;
+    border-radius: 6px;
+    width: 220px;
+    z-index: 100;
+    pointer-events: none;
+    transition: opacity 0.15s;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  }
+  .tooltip-box::after {
+    content: "";
+    position: absolute;
+    top: 100%; left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: var(--navy);
+  }
+  .tooltip-wrap:hover .tooltip-box,
+  .tooltip-wrap:focus-within .tooltip-box {
+    visibility: visible;
+    opacity: 1;
+  }
+
+  /* Score bar */
+  .score-fill { transition: width 0.4s ease; }
+
+  /* Status badge */
+  #status { font-size: 0.75rem; color: var(--taupe); }
+
+  /* Select & input */
+  select, input[type=search], input[type=number] {
+    border: 1.5px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 0.85rem;
+    background: white;
+    color: var(--navy);
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  select:focus, input:focus { border-color: var(--gold); }
+
+  /* Details/summary */
+  details summary { list-style: none; }
+  details summary::-webkit-details-marker { display: none; }
+
+  /* Modal scroll */
+  .modal-body { overflow-y: auto; max-height: calc(90vh - 80px); }
+
+  /* Sentiment bar track */
+  .sent-track { background: #ede8df; }
+
+  /* Animations */
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .fade-in { animation: fadeIn 0.2s ease; }
 </style>
 </head>
-<body class="bg-slate-50 text-slate-900">
-<div class="max-w-7xl mx-auto p-4">
+<body>
+<div class="max-w-7xl mx-auto px-4 py-5">
 
-  <!-- Header -->
-  <header class="flex flex-wrap items-center gap-3 mb-4">
-    <h1 class="text-2xl font-bold">Stock Tracker</h1>
-    <span id="status" class="text-xs text-slate-500"></span>
+  <!-- ── Header ── -->
+  <header class="flex flex-wrap items-center gap-3 mb-5">
+    <div>
+      <h1 class="text-2xl" style="color:var(--navy)">📈 Stock Tracker</h1>
+      <span id="status"></span>
+    </div>
     <div class="ml-auto flex flex-wrap gap-2 items-center">
-      <label class="text-sm">Duration:</label>
-      <select id="duration" class="border rounded px-2 py-1 text-sm bg-white">
+      <label class="text-sm" style="color:var(--taupe)">Period:</label>
+      <select id="duration">
         <option value="1d">1 Day</option>
         <option value="2d">2 Days</option>
         <option value="1w">1 Week</option>
@@ -34,58 +209,57 @@
         <option value="ytd">YTD</option>
         <option value="1y">1 Year</option>
       </select>
-      <input id="search" type="search" placeholder="Search ticker or name…"
-             class="border rounded px-2 py-1 text-sm bg-white w-48" />
-      <button id="settings-btn" class="border rounded px-3 py-1 text-sm bg-white hover:bg-slate-50" title="DCF & Alert Settings">⚙ Settings</button>
-      <button id="refresh" class="bg-slate-800 text-white text-sm px-3 py-1 rounded">Refresh</button>
+      <input id="search" type="search" placeholder="Search ticker or name…" style="width:200px" />
+      <button id="settings-btn" class="btn-secondary" title="Edit DCF & alert assumptions">⚙ Settings</button>
+      <button id="refresh" class="btn-primary">↻ Refresh</button>
     </div>
   </header>
 
-  <!-- Tabs -->
-  <nav class="flex gap-1 border-b mb-4 flex-wrap">
-    <button class="tab-btn px-3 py-2 text-sm font-medium border-b-2 border-blue-600" data-tab="sectors">By Sector</button>
-    <button class="tab-btn px-3 py-2 text-sm font-medium border-b-2 border-transparent" data-tab="value">📊 Value</button>
-    <button class="tab-btn px-3 py-2 text-sm font-medium border-b-2 border-transparent" data-tab="sentiment">💬 Sentiment</button>
-    <button class="tab-btn px-3 py-2 text-sm font-medium border-b-2 border-transparent" data-tab="favorites">★ Favorites</button>
-    <button class="tab-btn px-3 py-2 text-sm font-medium border-b-2 border-transparent" data-tab="all">All Stocks</button>
-    <button class="tab-btn relative px-3 py-2 text-sm font-medium border-b-2 border-transparent" data-tab="alerts">
+  <!-- ── Tabs ── -->
+  <nav class="flex gap-0 border-b mb-5 flex-wrap" style="border-color:var(--border)">
+    <button class="tab-btn px-4 py-2.5 text-sm active" data-tab="sectors">By Sector</button>
+    <button class="tab-btn px-4 py-2.5 text-sm" data-tab="value">📊 Value</button>
+    <button class="tab-btn px-4 py-2.5 text-sm" data-tab="sentiment">💬 Sentiment</button>
+    <button class="tab-btn px-4 py-2.5 text-sm" data-tab="favorites">★ Watchlist</button>
+    <button class="tab-btn px-4 py-2.5 text-sm" data-tab="all">All Stocks</button>
+    <button class="tab-btn relative px-4 py-2.5 text-sm" data-tab="alerts">
       🔔 Alerts
-      <span id="alert-badge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center"></span>
+      <span id="alert-badge" class="hidden absolute -top-0.5 -right-0.5 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center" style="background:var(--terracotta)"></span>
     </button>
   </nav>
 
-  <main id="content"></main>
+  <main id="content" class="fade-in"></main>
 </div>
 
-<!-- Stock Detail Modal -->
-<div id="modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-  <div class="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] overflow-auto">
-    <div class="flex items-center justify-between p-4 border-b">
+<!-- ── Stock Detail Modal ── -->
+<div id="modal" class="hidden fixed inset-0 flex items-center justify-center p-4 z-50" style="background:rgba(45,62,79,0.55)">
+  <div class="med-card w-full max-w-3xl" style="max-height:92vh;display:flex;flex-direction:column;">
+    <div class="flex items-center justify-between px-5 py-4" style="border-bottom:1px solid var(--border)">
       <div>
-        <h2 id="m-symbol" class="text-xl font-bold"></h2>
-        <p id="m-name" class="text-sm text-slate-500"></p>
+        <h2 id="m-symbol" class="text-xl" style="color:var(--navy)"></h2>
+        <p id="m-name" class="text-sm" style="color:var(--taupe)"></p>
       </div>
-      <button id="m-close" class="text-2xl px-2">&times;</button>
+      <button id="m-close" class="text-2xl px-2 leading-none" style="color:var(--taupe)">&times;</button>
     </div>
-    <div class="p-4">
-      <div class="flex items-baseline gap-3 mb-1">
-        <span id="m-price" class="text-3xl font-bold"></span>
-        <span id="m-change" class="text-lg font-semibold"></span>
+    <div class="modal-body px-5 py-4">
+      <div class="flex items-baseline gap-3 mb-3">
+        <span id="m-price" class="text-3xl font-bold" style="font-family:Georgia,serif;color:var(--navy)"></span>
+        <span id="m-change" class="text-base font-semibold"></span>
       </div>
       <div id="m-metrics"></div>
-      <canvas id="m-chart" height="120"></canvas>
-      <div class="mt-4 border-t pt-3">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Latest News</p>
-        <div id="m-news" class="text-sm">
-          <p class="text-slate-400 text-sm py-3">Loading news…</p>
+      <canvas id="m-chart" height="110" class="mt-2"></canvas>
+      <div class="mt-5 pt-4" style="border-top:1px solid var(--border)">
+        <p class="text-xs font-semibold uppercase tracking-widest mb-3" style="color:var(--taupe)">Latest News</p>
+        <div id="m-news">
+          <p class="text-sm py-3" style="color:var(--taupe)">Loading news…</p>
         </div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- Settings Modal -->
-<div id="settings-modal" class="hidden fixed inset-0 bg-black/50 items-center justify-center p-4 z-50">
+<!-- ── Settings Modal ── -->
+<div id="settings-modal" class="hidden fixed inset-0 items-center justify-center p-4 z-50" style="background:rgba(45,62,79,0.55)">
   <!-- populated by JS -->
 </div>
 
