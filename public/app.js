@@ -4,7 +4,6 @@
 const REFRESH_MS  = 30_000;
 const FUND_TTL_MS = 3_600_000;   // re-fetch fundamentals every 1h
 const NEWS_TTL_MS = 900_000;     // re-fetch news every 15 min
-const FAV_KEY     = "stock-tracker.favorites.v1";
 const ALERT_KEY   = "stock-tracker.alerts.v1";
 const CFG_KEY     = "stock-tracker.config.v1";
 
@@ -159,10 +158,78 @@ const M = {
   },
 };
 
+// ─── WATCHLIST ────────────────────────────────────────────────────────────────
+// US-traded symbols go to Alpaca for live price data.
+// Non-US symbols (marked international:true) won't have Alpaca price data
+// but are tracked for awareness — use your broker for current prices.
+const WATCHLIST = [
+  // ── ETFs ──────────────────────────────────────────────────────────────
+  { symbol: "SPY",     name: "SPDR S&P 500 ETF",             sector: "ETF",           industry: "Broad Market" },
+  { symbol: "VOO",     name: "Vanguard S&P 500 ETF",          sector: "ETF",           industry: "Broad Market" },
+  { symbol: "QQQM",    name: "Invesco NASDAQ 100 ETF",         sector: "ETF",           industry: "Tech-heavy" },
+  { symbol: "VHT",     name: "Vanguard Health Care ETF",       sector: "ETF",           industry: "Healthcare" },
+  { symbol: "GLD",     name: "SPDR Gold Shares",               sector: "ETF",           industry: "Commodities" },
+  // ── Technology ────────────────────────────────────────────────────────
+  { symbol: "AAPL",    name: "Apple Inc.",                     sector: "Technology",    industry: "Consumer Electronics" },
+  { symbol: "MSFT",    name: "Microsoft Corp.",                sector: "Technology",    industry: "Software" },
+  { symbol: "GOOGL",   name: "Alphabet Inc.",                  sector: "Technology",    industry: "Internet" },
+  { symbol: "META",    name: "Meta Platforms Inc.",            sector: "Technology",    industry: "Social Media" },
+  { symbol: "NVDA",    name: "NVIDIA Corp.",                   sector: "Technology",    industry: "Semiconductors" },
+  { symbol: "AMD",     name: "Advanced Micro Devices",         sector: "Technology",    industry: "Semiconductors" },
+  { symbol: "INTC",    name: "Intel Corp.",                    sector: "Technology",    industry: "Semiconductors" },
+  { symbol: "MU",      name: "Micron Technology",              sector: "Technology",    industry: "Memory Chips" },
+  { symbol: "ORCL",    name: "Oracle Corp.",                   sector: "Technology",    industry: "Enterprise Software" },
+  { symbol: "ARM",     name: "Arm Holdings",                   sector: "Technology",    industry: "Chip Architecture" },
+  { symbol: "SNOW",    name: "Snowflake Inc.",                  sector: "Technology",    industry: "Cloud Data" },
+  { symbol: "U",       name: "Unity Software",                 sector: "Technology",    industry: "Game Engine" },
+  // ── Healthcare ────────────────────────────────────────────────────────
+  { symbol: "ISRG",    name: "Intuitive Surgical",             sector: "Healthcare",    industry: "Surgical Robots" },
+  { symbol: "GEHC",    name: "GE HealthCare Technologies",     sector: "Healthcare",    industry: "Medical Devices" },
+  { symbol: "UNH",     name: "UnitedHealth Group",             sector: "Healthcare",    industry: "Health Insurance" },
+  // ── Financials ────────────────────────────────────────────────────────
+  { symbol: "V",       name: "Visa Inc.",                      sector: "Financials",    industry: "Payment Networks" },
+  { symbol: "AXP",     name: "American Express",               sector: "Financials",    industry: "Credit Cards" },
+  { symbol: "BRK-B",   name: "Berkshire Hathaway B",           sector: "Financials",    industry: "Diversified" },
+  { symbol: "BAC",     name: "Bank of America",                sector: "Financials",    industry: "Banking" },
+  { symbol: "MCO",     name: "Moody's Corp.",                  sector: "Financials",    industry: "Credit Ratings" },
+  // ── Consumer ──────────────────────────────────────────────────────────
+  { symbol: "BABA",    name: "Alibaba Group",                  sector: "Consumer",      industry: "E-Commerce" },
+  { symbol: "MCD",     name: "McDonald's Corp.",               sector: "Consumer",      industry: "Fast Food" },
+  { symbol: "KO",      name: "Coca-Cola Co.",                  sector: "Consumer",      industry: "Beverages" },
+  { symbol: "PEP",     name: "PepsiCo Inc.",                   sector: "Consumer",      industry: "Beverages & Snacks" },
+  { symbol: "TOST",    name: "Toast Inc.",                     sector: "Consumer",      industry: "Restaurant Tech" },
+  { symbol: "LEN",     name: "Lennar Corp.",                   sector: "Consumer",      industry: "Homebuilding" },
+  // ── Energy / Industrials ──────────────────────────────────────────────
+  { symbol: "CEG",     name: "Constellation Energy",           sector: "Energy",        industry: "Nuclear Power" },
+  { symbol: "MP",      name: "MP Materials Corp.",             sector: "Materials",     industry: "Rare Earth Mining" },
+  // ── Media / Entertainment ────────────────────────────────────────────
+  { symbol: "NFLX",    name: "Netflix Inc.",                   sector: "Media",         industry: "Streaming" },
+  // ── AI / Quantum ──────────────────────────────────────────────────────
+  { symbol: "TEM",     name: "Tempus AI Inc.",                 sector: "AI/Tech",       industry: "AI Healthcare" },
+  { symbol: "IONQ",    name: "IonQ Inc.",                      sector: "AI/Tech",       industry: "Quantum Computing" },
+  { symbol: "QUBT",    name: "Quantum Computing Inc.",         sector: "AI/Tech",       industry: "Quantum Computing" },
+  { symbol: "POET",    name: "POET Technologies",              sector: "AI/Tech",       industry: "Optical Computing" },
+  // ── EV / Disruptive ───────────────────────────────────────────────────
+  { symbol: "TSLA",    name: "Tesla Inc.",                     sector: "Automotive",    industry: "Electric Vehicles" },
+  // ── International (no Alpaca price data) ─────────────────────────────
+  { symbol: "C6L.SI",  name: "Singapore Airlines",             sector: "International", industry: "Airlines (SGX)",    international: true },
+  { symbol: "O39.SI",  name: "OCBC Bank",                      sector: "International", industry: "Banking (SGX)",     international: true },
+  { symbol: "PHG",     name: "Koninklijke Philips (ADR)",       sector: "Healthcare",    industry: "Medical Devices" },
+  { symbol: "VUKEL.XC",name: "Vanguard UK ETF (EUR)",           sector: "International", industry: "ETF (Xetra)",       international: true },
+  { symbol: "UKDVL.XC",name: "iShares UK Dividend ETF (EUR)",   sector: "International", industry: "ETF (Xetra)",       international: true },
+  { symbol: "TATE.L",  name: "Tate & Lyle (LSE)",               sector: "International", industry: "Food Ingredients",  international: true },
+  { symbol: "NG.L",    name: "National Grid (LSE)",              sector: "International", industry: "Utilities",         international: true },
+  { symbol: "5176.KL", name: "Pavilion REIT (Bursa)",            sector: "International", industry: "REIT",              international: true },
+  { symbol: "1155.KL", name: "Maybank (Bursa)",                  sector: "International", industry: "Banking (Malaysia)", international: true },
+];
+
+// Symbols that Alpaca can actually serve (US + ADRs on US exchanges)
+const US_SYMBOLS = WATCHLIST.filter(s => !s.international).map(s => s.symbol);
+const ALL_SYMBOLS = WATCHLIST.map(s => s.symbol);
+
 // ─── STATE ────────────────────────────────────────────────────────────────────
 const state = {
-  universe:      [],
-  bySector:      {},
+  universe:      WATCHLIST,
   quotes:        {},
   fundamentals:  {},
   fundFetchedAt: {},
@@ -170,11 +237,8 @@ const state = {
   newsFetchedAt: {},
   alerts:        JSON.parse(localStorage.getItem(ALERT_KEY) || "[]"),
   duration:      "1d",
-  tab:           "sectors",
+  tab:           "watchlist",
   search:        "",
-  sortCol:       null,
-  sortDir:       1,
-  favorites:     new Set(JSON.parse(localStorage.getItem(FAV_KEY) || "[]")),
   cfg:           { ...DEFAULT_CFG, ...JSON.parse(localStorage.getItem(CFG_KEY) || "{}") },
   timer:         null,
   fundTimer:     null,
@@ -182,36 +246,6 @@ const state = {
 
 function saveCfg()    { localStorage.setItem(CFG_KEY,   JSON.stringify(state.cfg)); }
 function saveAlerts() { localStorage.setItem(ALERT_KEY, JSON.stringify(state.alerts)); }
-
-// ─── UNIVERSE ─────────────────────────────────────────────────────────────────
-function parseCsvLine(line) {
-  const out = []; let cur = ""; let inQ = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (inQ) {
-      if (c === '"' && line[i+1] === '"') { cur += '"'; i++; }
-      else if (c === '"') inQ = false;
-      else cur += c;
-    } else {
-      if (c === '"') inQ = true;
-      else if (c === ',') { out.push(cur); cur = ""; }
-      else cur += c;
-    }
-  }
-  out.push(cur);
-  return out;
-}
-
-async function loadUniverse() {
-  const text = await fetch("./sp500.csv").then(r => r.text());
-  const rows = text.replace(/\r/g, "").trim().split("\n").slice(1).map(line => {
-    const f = parseCsvLine(line).map(s => s.trim());
-    if (f.length < 4) return null;
-    return { symbol: f[0], name: f[1], sector: f[2], industry: f[3] };
-  }).filter(Boolean);
-  state.universe = rows;
-  state.bySector = rows.reduce((acc, r) => { (acc[r.sector] ||= []).push(r); return acc; }, {});
-}
 
 // ─── DATA FETCHING ────────────────────────────────────────────────────────────
 function chunks(arr, n) {
@@ -221,9 +255,14 @@ function chunks(arr, n) {
 }
 
 async function fetchQuotes(symbols) {
-  if (!symbols.length) return {};
+  // Filter to US-tradeable symbols only (Alpaca doesn't serve international exchanges)
+  const usSyms = symbols.filter(s => {
+    const entry = state.universe.find(u => u.symbol === s);
+    return !entry?.international;
+  });
+  if (!usSyms.length) return {};
   const out = {};
-  const urls = chunks(symbols, 100).map(c =>
+  const urls = chunks(usSyms, 100).map(c =>
     `/api/quotes?symbols=${c.join(",")}&duration=${state.duration}`);
   const responses = await Promise.all(urls.map(u => fetch(u).then(async r => {
     if (!r.ok) throw new Error(`quotes ${r.status}: ${(await r.text()).slice(0,200)}`);
@@ -233,19 +272,22 @@ async function fetchQuotes(symbols) {
   return out;
 }
 
-async function fetchFundamentals(symbols, { wantFmp = false } = {}) {
-  if (!symbols.length) return;
-  const stale = symbols.filter(s => {
+async function fetchFundamentals(symbols, { wantFmp = true } = {}) {
+  // Filter to US-tradeable symbols only
+  const usSyms = symbols.filter(s => {
+    const entry = state.universe.find(u => u.symbol === s);
+    return !entry?.international;
+  });
+  if (!usSyms.length) return;
+  const stale = usSyms.filter(s => {
     const t = state.fundFetchedAt[s];
     if (!t || Date.now() - t > FUND_TTL_MS) return true;
-    // Re-fetch if FMP was missing last time AND caller now wants FMP data
     if (wantFmp && state.fundamentals[s] && !state.fundamentals[s].fmpLoaded) return true;
     return false;
   });
   if (!stale.length) return;
 
-  // Only attach ?fmp=1 when explicitly requested (favorites / detail modal)
-  // This keeps bulk loads (all 500 S&P stocks) free of FMP calls
+  // Watchlist is small (~40 US stocks) so always fetch FMP for best accuracy
   const fmpFlag = wantFmp ? "&fmp=1" : "";
   const urls = chunks(stale, 100).map(c =>
     `/api/fundamentals?symbols=${c.join(",")}${fmpFlag}`);
@@ -284,19 +326,17 @@ async function fetchNews(symbols) {
 }
 
 function visibleSymbols() {
-  if (state.tab === "favorites") return [...state.favorites];
-  return state.universe.map(s => s.symbol);
+  return ALL_SYMBOLS;
 }
 
 async function refresh() {
   const syms = visibleSymbols();
   setStatus("Loading…");
   try {
-    // wantFmp only for favorites — bulk S&P load skips FMP to protect quota
-    const isFavoritesView = state.tab === "favorites";
+    // Always fetch FMP — watchlist is small (~40 US stocks), well within daily quota
     const [newQuotes] = await Promise.all([
       fetchQuotes(syms),
-      fetchFundamentals(syms, { wantFmp: isFavoritesView }),
+      fetchFundamentals(syms, { wantFmp: true }),
       fetchNews(syms),
     ]);
     state.quotes = { ...state.quotes, ...newQuotes };
@@ -320,6 +360,7 @@ function setStatus(msg) { $("#status").textContent = msg; }
 function checkAlerts() {
   const now = Date.now();
   for (const s of state.universe) {
+    if (s.international) continue;   // no price data for non-US listings
     const sym   = s.symbol;
     const q     = state.quotes[sym];
     const f     = state.fundamentals[sym];
@@ -446,10 +487,9 @@ const scoreBar = score => {
   </div>`;
 };
 
-const starBtn = sym => {
-  const on = state.favorites.has(sym);
-  return `<button data-fav="${sym}" style="font-size:1.1rem;line-height:1;color:${on ? "var(--gold)" : "var(--border)"};transition:color 0.15s" onmouseenter="if(!${on})this.style.color='var(--gold)'" onmouseleave="if(!${on})this.style.color='var(--border)'">★</button>`;
-};
+// Star icon (static — all watchlist stocks are permanently tracked)
+const starBtn = () =>
+  `<span style="font-size:1rem;color:var(--gold)" title="On your watchlist">★</span>`;
 
 function metricFor(sym) {
   const q     = state.quotes[sym];
@@ -477,54 +517,59 @@ function metricFor(sym) {
 
 // ─── SUMMARY CARDS ────────────────────────────────────────────────────────────
 function renderSummaryCards() {
-  const scored = state.universe.map(s => {
+  // Only score US-listed stocks (international ones have no price data)
+  const scored = state.universe.filter(s => !s.international).map(s => {
     const m = metricFor(s.symbol);
     return { ...s, ...m };
-  }).filter(s => s.score != null);
+  }).filter(s => s.score != null && s.price != null);
 
   scored.sort((a, b) => b.score - a.score);
   const top5 = scored.slice(0, 5);
 
-  const strongBuys = scored.filter(s => s.zone === "Strong Buy").length;
-  const watches    = scored.filter(s => s.zone === "Watch").length;
+  const strongBuys  = scored.filter(s => s.zone === "Strong Buy").length;
+  const watches     = scored.filter(s => s.zone === "Watch").length;
   const todayAlerts = state.alerts.filter(a => Date.now() - a.ts < 86_400_000).length;
+  const intlCount   = state.universe.filter(s => s.international).length;
 
   const topRows = top5.map(s => `
     <tr class="cursor-pointer" style="border-bottom:1px solid var(--border)" data-symbol="${s.symbol}"
         onmouseenter="this.style.background='#faf8f3'" onmouseleave="this.style.background=''">
-      <td class="py-2 px-3" style="font-family:monospace;font-weight:700;color:var(--navy)">${s.symbol}</td>
-      <td class="py-2 px-3 truncate max-w-[140px]" style="font-size:0.8rem;color:var(--taupe)">${s.name}</td>
-      <td class="py-2 px-3 text-right" style="font-family:monospace;font-size:0.875rem">$${fmt(s.price)}</td>
-      <td class="py-2 px-3">${scoreBar(s.score)}</td>
-      <td class="py-2 px-3">${zoneChip(s.zone)}</td>
+      <td style="padding:9px 12px;font-family:monospace;font-weight:700;color:var(--navy)">${s.symbol}</td>
+      <td style="padding:9px 12px;font-size:0.8rem;color:var(--taupe);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.name}</td>
+      <td style="padding:9px 12px;text-align:right;font-family:monospace;font-size:0.875rem">$${fmt(s.price)}</td>
+      <td style="padding:9px 12px">${scoreBar(s.score)}</td>
+      <td style="padding:9px 12px">${zoneChip(s.zone)}</td>
     </tr>`).join("");
 
+  const emptyRow = `<tr><td colspan="5" style="padding:14px;font-size:0.875rem;color:var(--taupe)">Prices loading… fundamentals follow shortly.</td></tr>`;
+
   return `
-  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
-    <div class="med-card med-card-sage p-4">
-      <p class="text-xs uppercase tracking-widest mb-1" style="color:var(--taupe)">Strong Buy Zones ${tip("zone")}</p>
-      <p class="text-3xl font-bold" style="font-family:Georgia,serif;color:var(--sage)">${strongBuys}</p>
-      <p class="text-xs mt-1" style="color:var(--taupe)">${watches} in Watch Zone</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin-bottom:20px">
+    <div class="med-card med-card-sage" style="padding:16px">
+      <p style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--taupe);margin-bottom:6px">Strong Buy ${tip("zone")}</p>
+      <p style="font-size:2rem;font-family:Georgia,serif;font-weight:700;color:var(--sage);margin-bottom:2px">${strongBuys}</p>
+      <p style="font-size:0.75rem;color:var(--taupe)">${watches} in Watch Zone</p>
     </div>
-    <div class="med-card med-card-gold p-4">
-      <p class="text-xs uppercase tracking-widest mb-1" style="color:var(--taupe)">Stocks Scored ${tip("score")}</p>
-      <p class="text-3xl font-bold" style="font-family:Georgia,serif;color:var(--navy)">${scored.length}</p>
-      <p class="text-xs mt-1" style="color:var(--taupe)">with fundamentals loaded</p>
+    <div class="med-card med-card-gold" style="padding:16px">
+      <p style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--taupe);margin-bottom:6px">Watchlist Size</p>
+      <p style="font-size:2rem;font-family:Georgia,serif;font-weight:700;color:var(--navy);margin-bottom:2px">${state.universe.length}</p>
+      <p style="font-size:0.75rem;color:var(--taupe)">${scored.length} scored · ${intlCount} international</p>
     </div>
-    <div class="med-card med-card-terra p-4 cursor-pointer" id="alerts-card" style="transition:box-shadow 0.15s" onmouseenter="this.style.boxShadow='0 4px 12px rgba(45,62,79,0.1)'" onmouseleave="this.style.boxShadow=''">
-      <p class="text-xs uppercase tracking-widest mb-1" style="color:var(--taupe)">Today's Alerts</p>
-      <p class="text-3xl font-bold" style="font-family:Georgia,serif;color:var(--terracotta)">${todayAlerts}</p>
-      <p class="text-xs mt-1" style="color:var(--taupe)">tap to view →</p>
+    <div class="med-card med-card-terra" style="padding:16px;cursor:pointer;transition:box-shadow 0.15s" id="alerts-card"
+         onmouseenter="this.style.boxShadow='0 4px 12px rgba(45,62,79,0.1)'" onmouseleave="this.style.boxShadow=''">
+      <p style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--taupe);margin-bottom:6px">Today's Alerts</p>
+      <p style="font-size:2rem;font-family:Georgia,serif;font-weight:700;color:var(--terracotta);margin-bottom:2px">${todayAlerts}</p>
+      <p style="font-size:0.75rem;color:var(--taupe)">tap to view →</p>
     </div>
   </div>
-  <div class="med-card med-card-gold mb-5">
-    <div class="px-4 py-3 flex items-center gap-2" style="border-bottom:1px solid var(--border)">
-      <span class="font-semibold" style="font-family:Georgia,serif;color:var(--navy)">🏆 Top 5 Undervalued Opportunities</span>
-      <span class="text-xs ml-1" style="color:var(--taupe)">(ranked by undervaluation score)</span>
+  <div class="med-card med-card-gold" style="margin-bottom:20px">
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px">
+      <span style="font-family:Georgia,serif;font-weight:600;color:var(--navy)">🏆 Top Buy Opportunities</span>
+      <span style="font-size:0.75rem;color:var(--taupe)">ranked by undervaluation score — highest = most potentially undervalued</span>
     </div>
-    <div class="overflow-x-auto">
-      <table class="w-full">
-        <tbody>${topRows || `<tr><td colspan="5" class="p-4 text-sm" style="color:var(--taupe)">Loading scores… prices load first, then fundamentals.</td></tr>`}</tbody>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse">
+        <tbody>${topRows || emptyRow}</tbody>
       </table>
     </div>
   </div>`;
@@ -538,7 +583,7 @@ function rowHtml(s, showValue = false) {
     <tr class="med-table-row" data-symbol="${s.symbol}"
         onmouseenter="this.style.background='#faf8f3'" onmouseleave="this.style.background=''"
         style="border-bottom:1px solid #f0ebe0;cursor:pointer">
-      <td style="padding:9px 12px">${starBtn(s.symbol)}</td>
+      <td style="padding:9px 12px">${starBtn()}</td>
       <td style="padding:9px 12px;font-family:monospace;font-weight:700;color:var(--navy)">${s.symbol}</td>
       <td style="padding:9px 12px;font-size:0.82rem;color:var(--taupe);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.name}</td>
       <td style="padding:9px 12px;text-align:right;font-family:monospace;font-size:0.875rem">$${fmt(m.price)}</td>
@@ -557,7 +602,7 @@ function rowHtml(s, showValue = false) {
     <tr data-symbol="${s.symbol}"
         onmouseenter="this.style.background='#faf8f3'" onmouseleave="this.style.background=''"
         style="border-bottom:1px solid #f0ebe0;cursor:pointer">
-      <td style="padding:9px 12px">${starBtn(s.symbol)}</td>
+      <td style="padding:9px 12px">${starBtn()}</td>
       <td style="padding:9px 12px;font-family:monospace;font-weight:700;color:var(--navy)">${s.symbol}</td>
       <td style="padding:9px 12px;font-size:0.82rem;color:var(--taupe);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.name}</td>
       <td style="padding:9px 12px;text-align:right;font-family:monospace;font-size:0.875rem">$${fmt(m.price)}</td>
@@ -610,66 +655,67 @@ function sectorAggregate(stocks) {
 }
 
 // ─── TAB RENDERERS ────────────────────────────────────────────────────────────
-function renderSectors() {
+function renderWatchlist() {
   const summary = renderSummaryCards();
-  const sectors = Object.keys(state.bySector).sort();
-  const cards   = sectors.map(sec => {
-    const stocks  = state.bySector[sec];
+  // Group by sector, international last
+  const groups = state.universe.reduce((acc, s) => { (acc[s.sector] ||= []).push(s); return acc; }, {});
+  const sectors = Object.keys(groups).sort((a, b) => {
+    if (a === "International") return 1;
+    if (b === "International") return -1;
+    return a.localeCompare(b);
+  });
+  const cards = sectors.map(sec => {
+    const stocks  = groups[sec];
+    const isIntl  = sec === "International";
     const avg     = sectorAggregate(stocks);
     const winners = stocks.filter(s => (state.quotes[s.symbol]?.changePct ?? 0) > 0).length;
     return `
-      <details class="med-card mb-2">
+      <details class="med-card mb-2" ${isIntl ? "" : "open"}>
         <summary class="cursor-pointer px-4 py-3 flex items-center gap-3" style="border-radius:10px">
-          <span class="font-semibold flex-1" style="font-family:Georgia,serif;color:var(--navy)">${sec}</span>
-          <span class="text-xs" style="color:var(--taupe)">${stocks.length} stocks · ${winners} up</span>
-          ${chip(avg)}
+          <span style="font-family:Georgia,serif;font-weight:600;color:var(--navy);flex:1">${sec}</span>
+          <span style="font-size:0.75rem;color:var(--taupe)">${stocks.length} stock${stocks.length > 1 ? "s" : ""}${isIntl ? " · no live price" : ` · ${winners} up`}</span>
+          ${isIntl ? "" : chip(avg)}
           <span style="color:var(--taupe);font-size:0.8rem">▾</span>
         </summary>
-        <div class="overflow-x-auto" style="border-top:1px solid var(--border)">${tableHtml(stocks)}</div>
+        <div style="overflow-x:auto;border-top:1px solid var(--border)">
+          ${isIntl ? intlTable(stocks) : tableHtml(stocks, true)}
+        </div>
       </details>`;
   }).join("");
-  $("#content").innerHTML = `${summary}<div class="space-y-2">${cards}</div>`;
+  $("#content").innerHTML = `${summary}<div>${cards}</div>`;
   bindSummaryEvents();
 }
 
-function renderFavorites() {
-  const stocks = state.universe.filter(s => state.favorites.has(s.symbol));
-  if (!stocks.length) {
-    $("#content").innerHTML = `<div class="med-card p-10 text-center" style="color:var(--taupe)">
-      <p class="text-lg mb-2">No watchlist stocks yet.</p>
-      <p class="text-sm">Click ★ next to any stock to add it here.</p>
-    </div>`;
-    return;
-  }
-  const groups = stocks.reduce((acc, s) => { (acc[s.sector] ||= []).push(s); return acc; }, {});
-  $("#content").innerHTML = Object.entries(groups).map(([sec, list]) => `
-    <section class="med-card mb-3">
-      <div class="px-4 py-3 flex items-center gap-3" style="border-bottom:1px solid var(--border)">
-        <span class="font-semibold" style="font-family:Georgia,serif;color:var(--navy)">${sec}</span>
-        <span class="ml-auto">${chip(sectorAggregate(list))}</span>
-      </div>
-      <div class="overflow-x-auto">${tableHtml(list, true)}</div>
-    </section>`).join("");
-}
-
-function renderAll() {
-  $("#content").innerHTML = `<div class="med-card overflow-x-auto">${tableHtml(state.universe)}</div>`;
+// Simple table for international stocks (no price/score data from Alpaca)
+function intlTable(stocks) {
+  const th = label => `<th style="padding:10px 12px;background:#faf8f4;font-size:0.7rem;letter-spacing:0.06em;text-transform:uppercase;color:var(--taupe);border-bottom:1px solid var(--border)">${label}</th>`;
+  const rows = stocks.map(s => `
+    <tr style="border-bottom:1px solid #f0ebe0">
+      <td style="padding:9px 12px;font-family:monospace;font-weight:700;color:var(--navy)">${s.symbol}</td>
+      <td style="padding:9px 12px;font-size:0.82rem;color:var(--taupe)">${s.name}</td>
+      <td style="padding:9px 12px;font-size:0.8rem;color:var(--taupe)">${s.industry}</td>
+      <td style="padding:9px 12px;font-size:0.75rem;color:var(--terracotta)">⚠ Check your broker for live price</td>
+    </tr>`).join("");
+  return `<table style="width:100%;border-collapse:collapse">
+    <thead><tr>${th("Symbol")}${th("Name")}${th("Exchange / Type")}${th("Note")}</tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
 }
 
 function renderValue() {
-  const scored = [...state.universe].map(s => ({ ...s, ...metricFor(s.symbol) }));
+  const scored = [...state.universe].filter(s => !s.international).map(s => ({ ...s, ...metricFor(s.symbol) }));
   scored.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
-  const filtered = filterBySearch(scored).slice(0, 200);
+  const filtered = filterBySearch(scored);
   if (!filtered.length) {
-    $("#content").innerHTML = `<div class="med-card p-8 text-center" style="color:var(--taupe)">No data yet. Fundamentals load in the background — wait a moment then refresh.</div>`;
+    $("#content").innerHTML = `<div class="med-card" style="padding:32px;text-align:center;color:var(--taupe)">No data yet — prices and fundamentals are loading. Hit ↻ Refresh in a moment.</div>`;
     return;
   }
   const rows = filtered.map(s => rowHtml(s, true)).join("");
   $("#content").innerHTML = `
-    <div class="med-card med-card-gold overflow-x-auto">
-      <div class="px-4 py-3 flex items-center gap-3" style="border-bottom:1px solid var(--border)">
-        <span class="text-sm" style="color:var(--taupe)">Ranked by undervaluation score. Hover column headers for explanations. Fundamentals refresh hourly.</span>
-        <button id="open-settings" class="btn-secondary ml-auto" style="white-space:nowrap">⚙ Edit Assumptions</button>
+    <div class="med-card med-card-gold" style="overflow-x:auto">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:0.8rem;color:var(--taupe)">Ranked by undervaluation score. Hover column headers for explanations. Fundamentals refresh hourly.</span>
+        <button id="open-settings" class="btn-secondary" style="margin-left:auto;white-space:nowrap">⚙ Edit Assumptions</button>
       </div>
       ${tableHtml(filtered, true)}
     </div>`;
@@ -720,8 +766,8 @@ function renderAlerts() {
 
 // ─── SENTIMENT PAGE ───────────────────────────────────────────────────────────
 function renderSentiment() {
-  // Gather all symbols that have news data loaded
-  const all = state.universe.map(s => {
+  // Gather all US symbols that have news data loaded
+  const all = state.universe.filter(s => !s.international).map(s => {
     const n = state.news[s.symbol];
     const q = state.quotes[s.symbol];
     return { ...s, price: q?.last ?? null, changePct: q?.changePct ?? null,
@@ -852,12 +898,10 @@ function sentimentBar(score) {
 }
 
 function render() {
-  if      (state.tab === "favorites")  renderFavorites();
-  else if (state.tab === "all")        renderAll();
-  else if (state.tab === "value")      renderValue();
+  if      (state.tab === "value")      renderValue();
   else if (state.tab === "alerts")     renderAlerts();
   else if (state.tab === "sentiment")  renderSentiment();
-  else                                  renderSectors();
+  else                                  renderWatchlist();  // default: "watchlist"
 }
 
 function bindSummaryEvents() {
@@ -1076,14 +1120,6 @@ function bindEvents() {
   });
 
   document.addEventListener("click", e => {
-    const fav = e.target.closest("[data-fav]");
-    if (fav) {
-      e.stopPropagation();
-      const sym = fav.dataset.fav;
-      state.favorites.has(sym) ? state.favorites.delete(sym) : state.favorites.add(sym);
-      localStorage.setItem(FAV_KEY, JSON.stringify([...state.favorites]));
-      render(); return;
-    }
     const row = e.target.closest("[data-symbol]");
     if (row && !row.closest("#modal") && !row.closest("#settings-modal")) {
       openDetail(row.dataset.symbol);
@@ -1100,9 +1136,8 @@ function bindEvents() {
 // ─── BOOT ─────────────────────────────────────────────────────────────────────
 (async () => {
   bindEvents();
-  await loadUniverse();
-  render();
+  render();            // render shell immediately (watchlist is hardcoded — no CSV needed)
   await refresh();
   state.timer     = setInterval(refresh, REFRESH_MS);
-  state.fundTimer = setInterval(() => fetchFundamentals(visibleSymbols()), FUND_TTL_MS);
+  state.fundTimer = setInterval(() => fetchFundamentals(visibleSymbols(), { wantFmp: true }), FUND_TTL_MS);
 })();
