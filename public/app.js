@@ -39,18 +39,14 @@ const M = {
   },
 
   // ── DCF Fair Value ──────────────────────────────────────────────────────────
+  // Requires real FCF Yield from FMP (freeCashFlowYieldTTM). Returns null if
+  // FMP data is not loaded — no proxies, no guesses.
   dcfFairValue: (price, f, cfg) => {
     if (price == null) return null;
+    if (f?.fcfYield == null || f.fcfYield <= 0) return null;   // real data only
     const { discountRate: r, revenueGrowth: g, terminalGrowth: tg, projectionYears: n } = cfg;
     if (r <= tg) return null;
-    let fcf;
-    if (f?.fcfYield != null && f.fcfYield > 0) {
-      fcf = price * f.fcfYield;
-    } else if (f?.eps != null && f.eps > 0) {
-      fcf = f.eps;
-    } else {
-      fcf = price * 0.05;
-    }
+    let fcf = price * f.fcfYield;
     let pv = 0;
     for (let t = 1; t <= n; t++) {
       fcf *= (1 + g);
@@ -1097,12 +1093,167 @@ function sentimentBarHtml(score) {
     </div>`;
 }
 
+// ─── TAB: GUIDE ───────────────────────────────────────────────────────────────
+function renderGuide() {
+  const el = document.getElementById("content");
+  el.innerHTML = `
+  <div class="fade-in" style="max-width:820px;margin:0 auto">
+
+    <!-- Hero -->
+    <div class="med-card med-card-navy" style="padding:28px 32px;margin-bottom:24px">
+      <h2 style="font-family:Georgia,serif;font-size:1.5rem;color:var(--navy);margin-bottom:6px">📖 How This Tracker Works</h2>
+      <p style="color:var(--taupe);font-size:0.9rem;line-height:1.6">
+        This tracker is built for <strong>long-term equity investors (10 year+ horizon)</strong>. It blends
+        fundamental analysis, valuation models, and technical signals to surface stocks that are
+        high-quality businesses trading at a compelling price.
+      </p>
+    </div>
+
+    <!-- Step 1: Entry Zone -->
+    <div class="med-card med-card-gold" style="padding:24px 28px;margin-bottom:18px">
+      <h3 style="font-family:Georgia,serif;color:var(--navy);margin-bottom:14px;font-size:1.1rem">🎯 Step 1 — Entry Zone (What gets the label?)</h3>
+      <p style="font-size:0.875rem;color:var(--taupe);margin-bottom:14px;line-height:1.6">
+        Every stock is assigned one of four zones. The zone combines <em>price position</em> vs. fair value
+        with <em>business quality</em>. You need <strong>both</strong> — cheap junk never reaches Prime Entry.
+      </p>
+      <div style="display:grid;gap:10px">
+        <div style="display:flex;gap:14px;align-items:flex-start;padding:12px 14px;border-radius:8px;background:#faf8f4;border:1px solid var(--border)">
+          <span style="padding:3px 10px;border-radius:20px;font-size:0.72rem;font-weight:700;background:#2D6A4F;color:white;white-space:nowrap;flex-shrink:0;margin-top:1px">🎯 Prime Entry</span>
+          <p style="font-size:0.84rem;color:var(--navy);line-height:1.55;margin:0">Price &le; Ideal Entry Price <strong>AND</strong> (LT Score &ge; 65 OR Margin of Safety &ge; threshold). The business is excellent <em>and</em> the price is right.</p>
+        </div>
+        <div style="display:flex;gap:14px;align-items:flex-start;padding:12px 14px;border-radius:8px;background:#faf8f4;border:1px solid var(--border)">
+          <span style="padding:3px 10px;border-radius:20px;font-size:0.72rem;font-weight:700;background:var(--sage);color:white;white-space:nowrap;flex-shrink:0;margin-top:1px">✅ Good Entry</span>
+          <p style="font-size:0.84rem;color:var(--navy);line-height:1.55;margin:0">Price &le; DCF Fair Value &times; 0.85 <strong>OR</strong> Margin of Safety &ge; threshold, <strong>AND</strong> LT Score &ge; 50. Solid setup — slightly less undervalued or slightly lower quality than Prime, but still actionable.</p>
+        </div>
+        <div style="display:flex;gap:14px;align-items:flex-start;padding:12px 14px;border-radius:8px;background:#faf8f4;border:1px solid var(--border)">
+          <span style="padding:3px 10px;border-radius:20px;font-size:0.72rem;font-weight:700;background:var(--gold);color:var(--navy);white-space:nowrap;flex-shrink:0;margin-top:1px">👀 Watch</span>
+          <p style="font-size:0.84rem;color:var(--navy);line-height:1.55;margin:0">At least one positive signal fires: MoS &gt; 0, RSI oversold, or price below MA200. Worth monitoring — no position yet.</p>
+        </div>
+        <div style="display:flex;gap:14px;align-items:flex-start;padding:12px 14px;border-radius:8px;background:#faf8f4;border:1px solid var(--border)">
+          <span style="padding:3px 10px;border-radius:20px;font-size:0.72rem;font-weight:700;background:rgba(194,121,65,0.12);color:var(--terracotta);white-space:nowrap;flex-shrink:0;margin-top:1px">⏳ Wait</span>
+          <p style="font-size:0.84rem;color:var(--navy);line-height:1.55;margin:0">No compelling signal. The stock may be great, but the price is not right yet. Patience.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2: Ideal Entry Price -->
+    <div class="med-card med-card-terra" style="padding:24px 28px;margin-bottom:18px">
+      <h3 style="font-family:Georgia,serif;color:var(--navy);margin-bottom:12px;font-size:1.1rem">💲 Step 2 — How is the Ideal Entry Price calculated?</h3>
+      <p style="font-size:0.875rem;color:var(--taupe);margin-bottom:14px;line-height:1.6">
+        The tracker uses the <strong>median of up to three conservative estimates</strong>. Using the median avoids over-reliance on any single model.
+      </p>
+      <div style="display:grid;gap:8px;margin-bottom:14px">
+        <div style="padding:10px 14px;border-radius:7px;background:var(--gold-light)">
+          <p style="font-size:0.82rem;font-weight:600;color:var(--navy);margin-bottom:3px">DCF Fair Value &times; 0.75 <span style="font-size:0.72rem;font-weight:400;color:var(--terracotta)">(requires FMP FCF Yield data)</span></p>
+          <p style="font-size:0.8rem;color:var(--taupe);margin:0;line-height:1.5">Discounted Cash Flow model using real FCF Yield from FMP (freeCashFlowYieldTTM), projected 10 years. A 25% margin-of-safety discount is applied. <strong>If FMP is not loaded or FCF Yield is unavailable, this input is skipped entirely — no proxy is used.</strong></p>
+        </div>
+        <div style="padding:10px 14px;border-radius:7px;background:#e8f0e9">
+          <p style="font-size:0.82rem;font-weight:600;color:var(--navy);margin-bottom:3px">Graham Number &times; 0.85</p>
+          <p style="font-size:0.8rem;color:var(--taupe);margin:0;line-height:1.5">&radic;(22.5 &times; EPS &times; Book Value) — Benjamin Graham's classic max-fair-price formula. A further 15% discount is applied.</p>
+        </div>
+        <div style="padding:10px 14px;border-radius:7px;background:#ede8df">
+          <p style="font-size:0.82rem;font-weight:600;color:var(--navy);margin-bottom:3px">200-day MA &times; 0.95</p>
+          <p style="font-size:0.8rem;color:var(--taupe);margin:0;line-height:1.5">The long-term moving average is a proxy for fair technical value. A 5% discount sets a slightly better entry point.</p>
+        </div>
+      </div>
+      <div style="padding:10px 14px;background:#faf8f4;border-radius:7px;border:1px solid var(--border)">
+        <p style="font-size:0.8rem;color:var(--taupe);line-height:1.55;margin:0;margin-bottom:8px">
+          <strong>Example (all 3 available):</strong> DCF = $80 &rarr; target $60 (&times;0.75). Graham = $70 &rarr; target $59.50 (&times;0.85). MA200 = $65 &rarr; target $61.75 (&times;0.95).
+          Median of [$59.50, $60, $61.75] = <strong>$60.00</strong>. If the stock trades at $58, it is at or below ideal — Prime Entry territory.
+        </p>
+        <p style="font-size:0.8rem;color:var(--taupe);line-height:1.55;margin:0">
+          <strong>Example (FMP not loaded):</strong> DCF is skipped. Entry price = median of Graham target &amp; MA200 target only. If neither is available, entry price shows "—" and the DCF-based Margin of Safety is also blank.
+        </p>
+      </div>
+    </div>
+
+    <!-- Step 3: LT Score -->
+    <div class="med-card med-card-sage" style="padding:24px 28px;margin-bottom:18px">
+      <h3 style="font-family:Georgia,serif;color:var(--navy);margin-bottom:12px;font-size:1.1rem">📊 Step 3 — LT Score (0–100)</h3>
+      <p style="font-size:0.875rem;color:var(--taupe);margin-bottom:14px;line-height:1.6">
+        The LT Score answers: <em>"Is this a great business at a great price?"</em> It is a weighted composite of two sub-scores.
+      </p>
+      <div style="display:flex;gap:0;border-radius:8px;overflow:hidden;margin-bottom:16px;border:1px solid var(--border)">
+        <div style="flex:6;padding:12px 16px;background:#e8f0e9;text-align:center">
+          <p style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--sage);margin-bottom:4px">Undervaluation Score</p>
+          <p style="font-size:1.4rem;font-weight:700;color:#2D6A4F;margin:0">60%</p>
+        </div>
+        <div style="width:1px;background:var(--border)"></div>
+        <div style="flex:4;padding:12px 16px;background:#faf8f4;text-align:center">
+          <p style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--taupe);margin-bottom:4px">Quality Score</p>
+          <p style="font-size:1.4rem;font-weight:700;color:var(--navy);margin:0">40%</p>
+        </div>
+      </div>
+      <p style="font-size:0.78rem;font-weight:600;color:var(--navy);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.06em">Undervaluation Score components</p>
+      <div style="display:grid;gap:5px;margin-bottom:16px">
+        <div style="display:flex;gap:10px;align-items:flex-start;font-size:0.8rem;padding:7px 10px;border-radius:6px;background:#faf8f4"><span style="font-weight:700;color:#2D6A4F;min-width:36px;flex-shrink:0">30%</span><span style="font-weight:600;color:var(--navy);min-width:130px;flex-shrink:0">Margin of Safety</span><span style="color:var(--taupe);line-height:1.45">How far below DCF Fair Value the price is. Higher MoS = more undervalued.</span></div>
+        <div style="display:flex;gap:10px;align-items:flex-start;font-size:0.8rem;padding:7px 10px;border-radius:6px;background:#faf8f4"><span style="font-weight:700;color:#2D6A4F;min-width:36px;flex-shrink:0">20%</span><span style="font-weight:600;color:var(--navy);min-width:130px;flex-shrink:0">52-week Drawdown</span><span style="color:var(--taupe);line-height:1.45">How far the stock has fallen from its 52-week high. Deeper drawdown = potentially oversold.</span></div>
+        <div style="display:flex;gap:10px;align-items:flex-start;font-size:0.8rem;padding:7px 10px;border-radius:6px;background:#faf8f4"><span style="font-weight:700;color:#2D6A4F;min-width:36px;flex-shrink:0">15%</span><span style="font-weight:600;color:var(--navy);min-width:130px;flex-shrink:0">RSI-14</span><span style="color:var(--taupe);line-height:1.45">Relative Strength Index. RSI below the oversold threshold signals the stock may be due for a rebound.</span></div>
+        <div style="display:flex;gap:10px;align-items:flex-start;font-size:0.8rem;padding:7px 10px;border-radius:6px;background:#faf8f4"><span style="font-weight:700;color:#2D6A4F;min-width:36px;flex-shrink:0">15%</span><span style="font-weight:600;color:var(--navy);min-width:130px;flex-shrink:0">P/B Ratio</span><span style="color:var(--taupe);line-height:1.45">Price-to-Book. Lower ratio means the stock trades closer to its asset value.</span></div>
+        <div style="display:flex;gap:10px;align-items:flex-start;font-size:0.8rem;padding:7px 10px;border-radius:6px;background:#faf8f4"><span style="font-weight:700;color:#2D6A4F;min-width:36px;flex-shrink:0">10%</span><span style="font-weight:600;color:var(--navy);min-width:130px;flex-shrink:0">P/E Ratio</span><span style="color:var(--taupe);line-height:1.45">Price-to-Earnings vs. a 30&times; baseline. Lower P/E scores higher.</span></div>
+        <div style="display:flex;gap:10px;align-items:flex-start;font-size:0.8rem;padding:7px 10px;border-radius:6px;background:#faf8f4"><span style="font-weight:700;color:#2D6A4F;min-width:36px;flex-shrink:0">10%</span><span style="font-weight:600;color:var(--navy);min-width:130px;flex-shrink:0">Sentiment</span><span style="color:var(--taupe);line-height:1.45">News sentiment score from recent headlines. Negative sentiment can signal a contrarian buying opportunity.</span></div>
+      </div>
+      <p style="font-size:0.78rem;font-weight:600;color:var(--navy);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.06em">Quality Score components</p>
+      <div style="display:grid;gap:5px">
+        <div style="display:flex;gap:10px;align-items:flex-start;font-size:0.8rem;padding:7px 10px;border-radius:6px;background:#faf8f4"><span style="font-weight:700;color:var(--navy);min-width:36px;flex-shrink:0">25%</span><span style="font-weight:600;color:var(--navy);min-width:130px;flex-shrink:0">ROE</span><span style="color:var(--taupe);line-height:1.45">Return on Equity. Measures how efficiently the company generates profit from shareholders' equity.</span></div>
+        <div style="display:flex;gap:10px;align-items:flex-start;font-size:0.8rem;padding:7px 10px;border-radius:6px;background:#faf8f4"><span style="font-weight:700;color:var(--navy);min-width:36px;flex-shrink:0">20%</span><span style="font-weight:600;color:var(--navy);min-width:130px;flex-shrink:0">Operating Margin</span><span style="color:var(--taupe);line-height:1.45">Profit as a % of revenue after operating costs. Higher = stronger pricing power and efficiency.</span></div>
+        <div style="display:flex;gap:10px;align-items:flex-start;font-size:0.8rem;padding:7px 10px;border-radius:6px;background:#faf8f4"><span style="font-weight:700;color:var(--navy);min-width:36px;flex-shrink:0">20%</span><span style="font-weight:600;color:var(--navy);min-width:130px;flex-shrink:0">Earnings Growth</span><span style="color:var(--taupe);line-height:1.45">Year-over-year earnings growth. Great compounders grow earnings consistently over decades.</span></div>
+        <div style="display:flex;gap:10px;align-items:flex-start;font-size:0.8rem;padding:7px 10px;border-radius:6px;background:#faf8f4"><span style="font-weight:700;color:var(--navy);min-width:36px;flex-shrink:0">20%</span><span style="font-weight:600;color:var(--navy);min-width:130px;flex-shrink:0">Debt / Equity</span><span style="color:var(--taupe);line-height:1.45">Lower D/E means less leverage risk — critical for surviving recessions over a 10-year hold.</span></div>
+        <div style="display:flex;gap:10px;align-items:flex-start;font-size:0.8rem;padding:7px 10px;border-radius:6px;background:#faf8f4"><span style="font-weight:700;color:var(--navy);min-width:36px;flex-shrink:0">15%</span><span style="font-weight:600;color:var(--navy);min-width:130px;flex-shrink:0">Current Ratio</span><span style="color:var(--taupe);line-height:1.45">Short-term assets vs. liabilities. A ratio above 1.5 indicates the company can meet near-term obligations.</span></div>
+      </div>
+    </div>
+
+    <!-- Step 4: Alerts -->
+    <div class="med-card med-card-rose" style="padding:24px 28px;margin-bottom:18px">
+      <h3 style="font-family:Georgia,serif;color:var(--navy);margin-bottom:12px;font-size:1.1rem">🔔 Step 4 — Alerts</h3>
+      <p style="font-size:0.875rem;color:var(--taupe);line-height:1.6;margin-bottom:10px">
+        The tracker fires an alert automatically when a stock <strong>enters Prime Entry or Good Entry</strong>
+        for the first time (or re-enters after leaving). Alerts are stored in your browser and shown in the
+        🔔 Alerts tab with a red badge count.
+      </p>
+      <div style="padding:10px 14px;border-radius:7px;background:#faf8f4;border:1px solid var(--border)">
+        <p style="font-size:0.8rem;color:var(--taupe);line-height:1.55;margin:0">
+          Each alert shows the stock, the zone it entered, the current price, the ideal entry price, and the
+          LT Score at the time — so you can quickly judge if it is worth acting on.
+        </p>
+      </div>
+    </div>
+
+    <!-- Step 5: Settings -->
+    <div class="med-card" style="padding:24px 28px;margin-bottom:18px;border-left:4px solid var(--navy)">
+      <h3 style="font-family:Georgia,serif;color:var(--navy);margin-bottom:12px;font-size:1.1rem">⚙ Step 5 — Tuning the Assumptions</h3>
+      <p style="font-size:0.875rem;color:var(--taupe);line-height:1.6;margin-bottom:10px">
+        Click <strong>⚙ Settings</strong> in the top-right to adjust the model inputs that drive all scores.
+      </p>
+      <div style="display:grid;gap:6px">
+        <div style="display:flex;gap:10px;align-items:flex-start;font-size:0.8rem;padding:7px 10px;border-radius:6px;background:#faf8f4"><span style="font-weight:600;color:var(--navy);min-width:150px;flex-shrink:0">Discount Rate</span><span style="color:var(--taupe);line-height:1.45">Rate used to discount future cash flows in the DCF model. Higher = more conservative fair values. Default: 10%.</span></div>
+        <div style="display:flex;gap:10px;align-items:flex-start;font-size:0.8rem;padding:7px 10px;border-radius:6px;background:#faf8f4"><span style="font-weight:600;color:var(--navy);min-width:150px;flex-shrink:0">Revenue Growth</span><span style="color:var(--taupe);line-height:1.45">Assumed annual FCF/earnings growth in the DCF projection. Default: 8%.</span></div>
+        <div style="display:flex;gap:10px;align-items:flex-start;font-size:0.8rem;padding:7px 10px;border-radius:6px;background:#faf8f4"><span style="font-weight:600;color:var(--navy);min-width:150px;flex-shrink:0">Terminal Growth</span><span style="color:var(--taupe);line-height:1.45">Perpetual growth rate after the projection window. Must stay below the discount rate. Default: 3%.</span></div>
+        <div style="display:flex;gap:10px;align-items:flex-start;font-size:0.8rem;padding:7px 10px;border-radius:6px;background:#faf8f4"><span style="font-weight:600;color:var(--navy);min-width:150px;flex-shrink:0">Projection Years</span><span style="color:var(--taupe);line-height:1.45">How many years to project cash flows in the DCF model. Default: 10.</span></div>
+        <div style="display:flex;gap:10px;align-items:flex-start;font-size:0.8rem;padding:7px 10px;border-radius:6px;background:#faf8f4"><span style="font-weight:600;color:var(--navy);min-width:150px;flex-shrink:0">Margin of Safety %</span><span style="color:var(--taupe);line-height:1.45">Minimum discount to fair value required to qualify as Good/Prime Entry. Default: 20%.</span></div>
+        <div style="display:flex;gap:10px;align-items:flex-start;font-size:0.8rem;padding:7px 10px;border-radius:6px;background:#faf8f4"><span style="font-weight:600;color:var(--navy);min-width:150px;flex-shrink:0">RSI Oversold</span><span style="color:var(--taupe);line-height:1.45">RSI level below which a stock is considered technically oversold. Default: 35.</span></div>
+      </div>
+    </div>
+
+    <!-- Caveat -->
+    <div style="padding:14px 18px;border-radius:8px;background:rgba(194,121,65,0.08);border:1px solid rgba(194,121,65,0.25);margin-bottom:8px">
+      <p style="font-size:0.8rem;color:var(--terracotta);line-height:1.6;margin:0">
+        <strong>⚠ Important:</strong> This tracker is a research aid, not financial advice. Scores depend on
+        data quality from FMP and Alpaca. Always do your own due diligence. Fundamental data (FMP) is loaded
+        on demand — if a metric shows "—", refresh with FMP enabled.
+      </p>
+    </div>
+
+  </div>`;
+}
+
 // ─── RENDER DISPATCHER ────────────────────────────────────────────────────────
 function render() {
   if      (state.tab === "lt")        renderLTOpportunities();
   else if (state.tab === "value")     renderValue();
   else if (state.tab === "alerts")    renderAlerts();
   else if (state.tab === "sentiment") renderSentiment();
+  else if (state.tab === "guide")     renderGuide();
   else                                renderWatchlist();
 }
 
@@ -1185,11 +1336,11 @@ async function openDetail(symbol) {
   $("#m-price").textContent  = q ? `$${fmt(q.last)}` : "—";
   $("#m-change").innerHTML   = chip(q?.changePct);
 
-  const dcfSource = f?.fcfYield != null ? "FCF Yield (FMP)" : f?.eps != null ? "EPS (FMP)" : "5% yield proxy";
   const hasFmp    = f?.fmpLoaded === true;
+  const hasFcf    = f?.fcfYield != null && f.fcfYield > 0;
   const dataBadge = hasFmp
-    ? `<span style="font-size:0.75rem;padding:2px 8px;border-radius:4px;background:rgba(122,155,132,0.15);color:var(--sage);border:1px solid rgba(122,155,132,0.3)">✓ FMP fundamentals loaded · DCF uses ${dcfSource}</span>`
-    : `<span style="font-size:0.75rem;padding:2px 8px;border-radius:4px;background:rgba(212,165,116,0.15);color:var(--terracotta);border:1px solid rgba(212,165,116,0.3)">⚠ FMP not connected · DCF uses ${dcfSource}</span>`;
+    ? `<span style="font-size:0.75rem;padding:2px 8px;border-radius:4px;background:rgba(122,155,132,0.15);color:var(--sage);border:1px solid rgba(122,155,132,0.3)">✓ FMP loaded · DCF ${hasFcf ? "active (FCF Yield)" : "—  no FCF data"}</span>`
+    : `<span style="font-size:0.75rem;padding:2px 8px;border-radius:4px;background:rgba(212,165,116,0.15);color:var(--terracotta);border:1px solid rgba(212,165,116,0.3)">⚠ FMP not loaded · DCF unavailable · entry price uses Graham &amp; MA200 only</span>`;
 
   const entryCtx = m.entryPrice ? `
     <div style="margin:12px 0;padding:12px 14px;border-radius:8px;border:1.5px solid ${m.price <= m.entryPrice ? '#2D6A4F' : 'var(--border)'};background:${m.price <= m.entryPrice ? 'rgba(45,106,79,0.07)' : '#faf8f4'}">
