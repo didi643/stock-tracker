@@ -3,15 +3,15 @@
 // Technical (always — from Alpaca daily bars):
 //   ma50, ma200, rsi14, high52w, low52w, pctFrom52wHigh, adv30
 //
-// Fundamental (FMP, only when ?fmp=1 is passed AND FMP_API_KEY is set):
-//   pe, pe5yAvg, fcfYield, eps
+// Fundamental (FMP, only when ?fmp=1 AND FMP_API_KEY set):
+//   pe, eps, bookValue, pbRatio, evEbitda, dividendYield,
+//   revenueGrowthYoy, earningsGrowthYoy, debtToEquity, roe, currentRatio,
+//   grossMargin, operatingMargin, mktCap, beta
 //
 // FMP free tier = 250 calls/day.
-// Rules to stay within quota:
-//   1. Only fetch FMP when caller explicitly passes ?fmp=1
-//      (frontend only sends this for favorites / detail modal, not bulk loads)
-//   2. ONE call per symbol — /stable/profile has pe + eps, that's enough
-//   3. Concurrency capped at 3 in-flight at a time
+// Strategy: 2 calls per symbol (profile + ratios) — keep concurrency ≤ 3.
+//   /stable/profile  → pe, eps, mktCap, beta, dividendYield, bookValue, pbRatio
+//   /stable/ratios   → evEbitda, grossMargin, operatingMargin, roe, debtToEquity, currentRatio
 
 const ALPACA_DATA = "https://data.alpaca.markets/v2";
 const FMP_BASE    = "https://financialmodelingprep.com/stable";
@@ -41,42 +41,74 @@ function chunks(arr, n) {
   return out;
 }
 
-// ─── FMP — single call per symbol ─────────────────────────────────────────────
+// ─── FMP helpers ──────────────────────────────────────────────────────────────
 
-async function fmpProfile(symbol) {
+function safeNum(v, decimals = 2) {
+  const n = Number(v);
+  return isFinite(n) && n !== 0 ? +n.toFixed(decimals) : null;
+}
+
+async function fmpGet(endpoint, symbol, key) {
+  const qs = new URLSearchParams({ symbol, apikey: key }).toString();
+  try {
+    const r = await fetch(`${FMP_BASE}/${endpoint}?${qs}`);
+    if (r.status === 429) { console.warn(`FMP quota 429 ${symbol} ${endpoint}`); return null; }
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (j?.["Error Message"] || j?.error) return null;
+    return Array.isArray(j) ? j[0] : j;
+  } catch (e) {
+    console.error(`FMP ${endpoint} ${symbol}:`, e.message);
+    return null;
+  }
+}
+
+// Fetch profile + ratios (TTM) in parallel for one symbol — 2 FMP calls total
+async function fmpFull(symbol) {
   const key = process.env.FMP_API_KEY;
   if (!key) return null;
 
-  // ONE call: /stable/profile?symbol=AAPL
-  // Returns: pe, eps, price, companyName, beta, mktCap, ...
-  const qs = new URLSearchParams({ symbol, apikey: key }).toString();
-  let r;
-  try {
-    r = await fetch(`${FMP_BASE}/profile?${qs}`);
-  } catch (e) {
-    console.error(`FMP fetch error ${symbol}:`, e.message);
-    return null;
-  }
+  const [profile, ratios] = await Promise.all([
+    fmpGet("profile",       symbol, key),
+    fmpGet("ratios-ttm",    symbol, key),
+  ]);
 
-  // 429 = quota hit — log clearly, return null gracefully
-  if (r.status === 429) {
-    console.warn(`FMP quota exceeded (429) for ${symbol}`);
-    return null;
-  }
-  if (!r.ok) return null;
+  if (!profile && !ratios) return null;
 
-  const j = await r.json();
-  if (j?.["Error Message"] || j?.error || j?.message) return null;
+  const p = profile  || {};
+  const r = ratios   || {};
 
-  const p = Array.isArray(j) ? j[0] : j;
-  if (!p) return null;
+  // Revenue / earnings growth from profile (YoY %)
+  // FMP profile has revenueGrowth and earningsGrowth (as decimals)
+  const revenueGrowthYoy  = safeNum(p.revenueGrowthYoy  ?? p.revenueGrowth,  4);
+  const earningsGrowthYoy = safeNum(p.earningsGrowthYoy ?? p.earningsGrowth, 4);
 
-  // pe from profile, eps from profile
-  // FCF yield not available from profile alone — skip, use EPS for DCF
-  const pe  = p.pe  != null && p.pe  > 0 ? +Number(p.pe).toFixed(2)  : null;
-  const eps = p.eps != null              ? +Number(p.eps).toFixed(2) : null;
+  return {
+    // Core valuation
+    pe:              safeNum(p.pe   > 0 ? p.pe : null),
+    pe5yAvg:         null,                              // not on free tier
+    eps:             safeNum(p.eps),
+    bookValue:       safeNum(p.bookValuePerShare ?? p.bookValue),
+    pbRatio:         safeNum(r.priceToBookRatioTTM ?? p.priceToBookRatio),
+    evEbitda:        safeNum(r.enterpriseValueMultipleTTM ?? r.evToEbitda),
+    dividendYield:   safeNum(p.lastDiv > 0 && p.price > 0 ? p.lastDiv / p.price : (p.dividendYield ?? null), 4),
+    mktCap:          safeNum(p.mktCap, 0),
+    beta:            safeNum(p.beta, 3),
 
-  return { pe, pe5yAvg: null, fcfYield: null, eps, fmpLoaded: true };
+    // Quality / safety
+    roe:             safeNum(r.returnOnEquityTTM ?? r.roe),
+    debtToEquity:    safeNum(r.debtEquityRatioTTM ?? r.debtToEquity),
+    currentRatio:    safeNum(r.currentRatioTTM ?? r.currentRatio),
+    grossMargin:     safeNum(r.grossProfitMarginTTM ?? r.grossMargin),
+    operatingMargin: safeNum(r.operatingProfitMarginTTM ?? r.operatingMargin),
+    fcfYield:        safeNum(r.freeCashFlowYieldTTM ?? null, 4),
+
+    // Growth
+    revenueGrowthYoy,
+    earningsGrowthYoy,
+
+    fmpLoaded: true,
+  };
 }
 
 // Concurrency pool
@@ -157,11 +189,10 @@ export default async (req) => {
   }
 
   try {
-    // Always fetch Alpaca bars; only fetch FMP when explicitly requested
     const [barMap, fmpResults] = await Promise.all([
       fetchBars252(syms, feed),
       wantFmp
-        ? pool(syms.map(sym => () => fmpProfile(sym)), 3)
+        ? pool(syms.map(sym => () => fmpFull(sym)), 3)
         : Promise.resolve(syms.map(() => null)),
     ]);
 
@@ -184,6 +215,7 @@ export default async (req) => {
         : null;
 
       fundamentals[sym] = {
+        // Technical
         ma50:           sma(closes, 50),
         ma200:          sma(closes, 200),
         rsi14:          rsi14(closes),
@@ -192,12 +224,26 @@ export default async (req) => {
         pctFrom52wHigh: last && high52w
           ? +((last - high52w) / high52w * 100).toFixed(2) : null,
         adv30,
-        pe:          fmp?.pe          ?? null,
-        pe5yAvg:     fmp?.pe5yAvg     ?? null,
-        fcfYield:    fmp?.fcfYield    ?? null,
-        eps:         fmp?.eps         ?? null,
-        fmpLoaded:   fmp?.fmpLoaded   ?? false,
-        bars:        bars.map(b => ({ t: b.t, c: b.c, h: b.h, l: b.l, v: b.v })),
+        // FMP fundamentals (null when not loaded)
+        pe:                  fmp?.pe                  ?? null,
+        pe5yAvg:             fmp?.pe5yAvg             ?? null,
+        fcfYield:            fmp?.fcfYield            ?? null,
+        eps:                 fmp?.eps                 ?? null,
+        bookValue:           fmp?.bookValue           ?? null,
+        pbRatio:             fmp?.pbRatio             ?? null,
+        evEbitda:            fmp?.evEbitda            ?? null,
+        dividendYield:       fmp?.dividendYield       ?? null,
+        mktCap:              fmp?.mktCap              ?? null,
+        beta:                fmp?.beta                ?? null,
+        roe:                 fmp?.roe                 ?? null,
+        debtToEquity:        fmp?.debtToEquity        ?? null,
+        currentRatio:        fmp?.currentRatio        ?? null,
+        grossMargin:         fmp?.grossMargin         ?? null,
+        operatingMargin:     fmp?.operatingMargin     ?? null,
+        revenueGrowthYoy:    fmp?.revenueGrowthYoy    ?? null,
+        earningsGrowthYoy:   fmp?.earningsGrowthYoy   ?? null,
+        fmpLoaded:           fmp?.fmpLoaded           ?? false,
+        bars:                bars.map(b => ({ t: b.t, c: b.c, h: b.h, l: b.l, v: b.v })),
       };
     });
 
