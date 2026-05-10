@@ -236,8 +236,18 @@ const WATCHLIST = [
   { symbol: "IONQ",    name: "IonQ Inc.",                      sector: "AI/Tech",       industry: "Quantum Computing" },
   { symbol: "QUBT",    name: "Quantum Computing Inc.",         sector: "AI/Tech",       industry: "Quantum Computing" },
   { symbol: "POET",    name: "POET Technologies",              sector: "AI/Tech",       industry: "Optical Computing" },
+  { symbol: "SOUN",    name: "SoundHound AI Inc.",             sector: "AI/Tech",       industry: "Voice AI" },
+  { symbol: "PLTR",    name: "Palantir Technologies",          sector: "AI/Tech",       industry: "Data Analytics / AI" },
+  // ── E-Commerce ────────────────────────────────────────────────────────
+  { symbol: "AMZN",    name: "Amazon.com Inc.",                sector: "Technology",    industry: "E-Commerce / Cloud" },
   // ── EV / Disruptive ───────────────────────────────────────────────────
   { symbol: "TSLA",    name: "Tesla Inc.",                     sector: "Automotive",    industry: "Electric Vehicles" },
+  // ── Fintech ───────────────────────────────────────────────────────────
+  { symbol: "SOFI",    name: "SoFi Technologies",              sector: "Financials",    industry: "Digital Banking" },
+  // ── Biotech / Genomics ────────────────────────────────────────────────
+  { symbol: "CRSP",    name: "CRISPR Therapeutics",            sector: "Healthcare",    industry: "Gene Editing" },
+  // ── Crypto ETF ────────────────────────────────────────────────────────
+  { symbol: "IBIT",    name: "iShares Bitcoin Trust ETF",      sector: "ETF",           industry: "Crypto / Bitcoin" },
   // ── International (no Alpaca price data) ─────────────────────────────
   { symbol: "C6L.SI",  name: "Singapore Airlines",             sector: "International", industry: "Airlines (SGX)",     international: true },
   { symbol: "O39.SI",  name: "OCBC Bank",                      sector: "International", industry: "Banking (SGX)",      international: true },
